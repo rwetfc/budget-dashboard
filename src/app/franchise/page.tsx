@@ -31,6 +31,7 @@ interface Assumptions {
   tier2Price: number;
   jvPrice: number;
   gmvPerFranchiseMonthly: number;
+  gmvPerJVMonthly: number;
   gmvRampMonths: number;
   churnRateTier1: number;
   churnRateTier2: number;
@@ -66,6 +67,7 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   tier2Price: 2000,
   jvPrice: 3500,
   gmvPerFranchiseMonthly: 83333,
+  gmvPerJVMonthly: 83333,
   gmvRampMonths: 4,
   churnRateTier1: 0.02,
   churnRateTier2: 0.01,
@@ -118,8 +120,9 @@ function calcScenario(a: Assumptions, sc: Scenario) {
   let activeTier2 = sc.startingTier2;
   let activeJV = sc.startingJV;
   let activeFranchises = sc.startingFranchises;
-  // Track franchise ages for GMV ramp
+  // Track ages for GMV ramp (franchises and JVs)
   const franchiseAges: number[] = Array(sc.startingFranchises).fill(a.gmvRampMonths + 1);
+  const jvAges: number[] = Array(sc.startingJV).fill(a.gmvRampMonths + 1);
 
   const rows = sc.months.map((m, i) => {
     // New sales
@@ -142,15 +145,26 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     // Age existing franchises and add new
     for (let f = 0; f < franchiseAges.length; f++) franchiseAges[f]++;
     for (let f = 0; f < newF; f++) franchiseAges.push(1);
-    // Remove churned (oldest first)
     for (let f = 0; f < churnedF && franchiseAges.length > 0; f++) franchiseAges.shift();
 
-    // GMV calculation with ramp
-    let systemGMV = 0;
+    // Age existing JVs and add new
+    for (let j = 0; j < jvAges.length; j++) jvAges[j]++;
+    for (let j = 0; j < newJV; j++) jvAges.push(1);
+    for (let j = 0; j < churnedJV && jvAges.length > 0; j++) jvAges.shift();
+
+    // GMV calculation with ramp — Franchises
+    let franchiseGMV = 0;
     for (const age of franchiseAges) {
       const rampFactor = Math.min(age / a.gmvRampMonths, 1);
-      systemGMV += a.gmvPerFranchiseMonthly * rampFactor;
+      franchiseGMV += a.gmvPerFranchiseMonthly * rampFactor;
     }
+    // GMV calculation with ramp — JVs
+    let jvGMV = 0;
+    for (const age of jvAges) {
+      const rampFactor = Math.min(age / a.gmvRampMonths, 1);
+      jvGMV += a.gmvPerJVMonthly * rampFactor;
+    }
+    const systemGMV = franchiseGMV + jvGMV;
 
     // Revenue
     const revFranchiseFees = newF * a.franchiseFee;
@@ -159,9 +173,10 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     const revJV = activeJV * a.jvPrice;
     const revMembership = revTier1 + revTier2 + revJV;
     const revHeadOffice = revFranchiseFees + revMembership;
+    // Royalties on all GMV (franchises + JVs)
     const revRoyalties = systemGMV * a.royaltyRate;
     const revPlatformFees = (revMembership + systemGMV) * a.platformFeeRate;
-    // Material sales: franchises buy materials through HQ
+    // Material sales: franchises + JVs buy materials through HQ
     const materialVolume = systemGMV * a.materialPctOfGMV;
     const revMaterialMarkup = materialVolume * a.materialMarkup;
     const totalRevenue = revHeadOffice + revRoyalties + revPlatformFees + revMaterialMarkup;
@@ -183,7 +198,7 @@ function calcScenario(a: Assumptions, sc: Scenario) {
       newF, newT1, newT2, newJV,
       activeTier1, activeTier2, activeJV, activeFranchises,
       activeMembers: activeTier1 + activeTier2 + activeJV,
-      systemGMV,
+      franchiseGMV, jvGMV, systemGMV,
       revFranchiseFees, revTier1, revTier2, revJV, revMembership, revHeadOffice,
       revRoyalties, revPlatformFees, materialVolume, revMaterialMarkup, totalRevenue,
       costCommissions, costOverhead, totalCost,
@@ -291,6 +306,8 @@ export default function FranchiseDashboard() {
   const [saveMsg, setSaveMsg] = useState("");
   const [savedVersions, setSavedVersions] = useState<{ name: string; data: string; date: string }[]>([]);
   const [saveName, setSaveName] = useState("");
+  const [renamingIdx, setRenamingIdx] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { assumptions: a, scenarios, activeScenario } = state;
@@ -318,15 +335,18 @@ export default function FranchiseDashboard() {
   };
 
   const addScenario = () => {
-    setState(prev => ({
-      ...prev,
-      scenarios: [...prev.scenarios, {
-        name: "Scenario " + (prev.scenarios.length + 1),
-        startingTier1: 0, startingTier2: 0, startingJV: 0, startingFranchises: 0,
-        months: MONTHS_36(), color: CHART_COLORS[prev.scenarios.length % CHART_COLORS.length],
-      }],
-      activeScenario: prev.scenarios.length,
-    }));
+    setState(prev => {
+      const src = prev.scenarios[prev.activeScenario];
+      return {
+        ...prev,
+        scenarios: [...prev.scenarios, {
+          ...JSON.parse(JSON.stringify(src)),
+          name: "Scenario " + (prev.scenarios.length + 1),
+          color: CHART_COLORS[prev.scenarios.length % CHART_COLORS.length],
+        }],
+        activeScenario: prev.scenarios.length,
+      };
+    });
   };
 
   const duplicateScenario = () => {
@@ -439,15 +459,30 @@ export default function FranchiseDashboard() {
           {/* Scenario Tabs */}
           <div className="flex items-center gap-2 mt-4">
             {scenarios.map((s, i) => (
-              <button key={i} onClick={() => setState(prev => ({ ...prev, activeScenario: i }))}
-                className={`px-4 py-2 rounded-t-lg text-xs font-medium transition ${i === activeScenario ? 'bg-white text-indigo-900 shadow-lg' : 'bg-indigo-700/30 text-indigo-200 hover:bg-indigo-700/50'}`}>
-                <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ backgroundColor: s.color }} />
-                {s.name}
-              </button>
+              <div key={i}
+                onClick={() => setState(prev => ({ ...prev, activeScenario: i }))}
+                onDoubleClick={() => { setRenamingIdx(i); setRenameValue(s.name); }}
+                className={`px-4 py-2 rounded-t-lg text-xs font-medium transition cursor-pointer flex items-center gap-2 ${i === activeScenario ? 'bg-white text-indigo-900 shadow-lg' : 'bg-indigo-700/30 text-indigo-200 hover:bg-indigo-700/50'}`}>
+                <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                {renamingIdx === i ? (
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={e => setRenameValue(e.target.value)}
+                    onBlur={() => { if (renameValue.trim()) updateScenarioField('name', renameValue.trim()); setRenamingIdx(null); }}
+                    onKeyDown={e => { if (e.key === 'Enter') { if (renameValue.trim()) updateScenarioField('name', renameValue.trim()); setRenamingIdx(null); } if (e.key === 'Escape') setRenamingIdx(null); }}
+                    onClick={e => e.stopPropagation()}
+                    className="bg-transparent border-b border-indigo-300 outline-none text-xs w-32 px-0 py-0"
+                  />
+                ) : (
+                  <span>{s.name}</span>
+                )}
+              </div>
             ))}
             <button onClick={addScenario} className="px-3 py-2 rounded-t-lg text-xs text-indigo-300 hover:text-white hover:bg-indigo-700/30 transition">+ New</button>
             <button onClick={duplicateScenario} className="px-3 py-2 rounded-t-lg text-xs text-indigo-300 hover:text-white hover:bg-indigo-700/30 transition">Duplicate</button>
             {scenarios.length > 1 && <button onClick={deleteScenario} className="px-3 py-2 rounded-t-lg text-xs text-red-300 hover:text-red-200 hover:bg-red-900/30 transition">Delete</button>}
+            <span className="text-indigo-400/50 text-xs ml-2">double-click to rename</span>
           </div>
         </div>
       </div>
@@ -671,15 +706,10 @@ export default function FranchiseDashboard() {
           <div className="space-y-4">
             <Section title={"Scenario: " + sc.name} color="indigo">
               <div className="grid grid-cols-4 gap-4 mb-4">
-                <InputField label="Scenario Name" value={0} onChange={() => {}} prefix="" />
-                <div className="mb-3">
-                  <label className="text-xs font-medium text-gray-600">Scenario Name</label>
-                  <input value={sc.name} onChange={e => updateScenarioField('name', e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 mt-0.5 focus:ring-2 focus:ring-blue-500 outline-none" />
-                </div>
                 <InputField label="Starting Tier 1" value={sc.startingTier1} onChange={v => updateScenarioField('startingTier1', Math.max(0, v))} />
                 <InputField label="Starting Tier 2" value={sc.startingTier2} onChange={v => updateScenarioField('startingTier2', Math.max(0, v))} />
                 <InputField label="Starting JV" value={sc.startingJV} onChange={v => updateScenarioField('startingJV', Math.max(0, v))} />
+                <InputField label="Starting Franchises" value={sc.startingFranchises} onChange={v => updateScenarioField('startingFranchises', Math.max(0, v))} />
               </div>
             </Section>
 
@@ -759,11 +789,12 @@ export default function FranchiseDashboard() {
               </Section>
               <Section title="Franchise Economics" color="purple">
                 <InputField label="GMV per Franchise/Month" value={a.gmvPerFranchiseMonthly} onChange={v => updateAssumption('gmvPerFranchiseMonthly', v)} prefix="$" step={5000} />
+                <InputField label="GMV per JV/Month" value={a.gmvPerJVMonthly} onChange={v => updateAssumption('gmvPerJVMonthly', v)} prefix="$" step={5000} />
                 <InputField label="GMV Ramp Months" value={a.gmvRampMonths} onChange={v => updateAssumption('gmvRampMonths', v)} step={1} min={1} max={12} />
                 <div className="mt-3 p-3 bg-purple-100 rounded-lg text-xs text-purple-800">
-                  <p className="font-bold mb-1">Franchise GMV Model</p>
-                  <p>Each franchise ramps linearly over {a.gmvRampMonths} months to {fmt(a.gmvPerFranchiseMonthly)}/mo ({fmt(a.gmvPerFranchiseMonthly * 12)}/year).</p>
-                  <p className="mt-1">You earn {fmtPct(a.royaltyRate)} royalties + {fmtPct(a.platformFeeRate)} platform fees on all GMV.</p>
+                  <p className="font-bold mb-1">Franchise & JV GMV Model</p>
+                  <p>Franchises ramp to {fmt(a.gmvPerFranchiseMonthly)}/mo, JVs ramp to {fmt(a.gmvPerJVMonthly)}/mo over {a.gmvRampMonths} months.</p>
+                  <p className="mt-1">HQ earns {fmtPct(a.royaltyRate)} royalties + {fmtPct(a.materialPctOfGMV * a.materialMarkup)} material markup + {fmtPct(a.platformFeeRate)} platform fees on all GMV.</p>
                 </div>
               </Section>
               <Section title="Material Sales" color="amber">
@@ -771,7 +802,7 @@ export default function FranchiseDashboard() {
                 <InputField label="HQ Markup on Materials" value={a.materialMarkup * 100} onChange={v => updateAssumption('materialMarkup', v / 100)} suffix="%" step={0.5} min={0} max={50} />
                 <div className="mt-3 p-3 bg-amber-100 rounded-lg text-xs text-amber-800">
                   <p className="font-bold mb-1">Material Sales Model</p>
-                  <p>Franchises purchase {fmtPctWhole(a.materialPctOfGMV * 100)} of their GMV in materials through HQ.</p>
+                  <p>Franchises & JVs purchase {fmtPctWhole(a.materialPctOfGMV * 100)} of their GMV in materials through HQ.</p>
                   <p className="mt-1">HQ earns a {fmtPctWhole(a.materialMarkup * 100)} markup = <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup)}/franchise/month</span> at steady state.</p>
                   <p className="mt-1">Per franchise annual material profit: <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup * 12)}</span></p>
                 </div>
@@ -793,7 +824,7 @@ export default function FranchiseDashboard() {
                 <div className="space-y-2 text-xs">
                   <p className="text-gray-600">Each additional Tier 1 member = <span className="font-bold text-indigo-700">{fmt(a.tier1Price * 12)}/year</span></p>
                   <p className="text-gray-600">Each additional Tier 2 member = <span className="font-bold text-indigo-700">{fmt(a.tier2Price * 12)}/year</span></p>
-                  <p className="text-gray-600">Each additional JV = <span className="font-bold text-indigo-700">{fmt(a.jvPrice * 12)}/year</span></p>
+                  <p className="text-gray-600">Each additional JV = <span className="font-bold text-indigo-700">{fmt(a.jvPrice * 12)}/yr dues + {fmt(a.gmvPerJVMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialMarkup + a.platformFeeRate))}/yr from GMV</span></p>
                   <p className="text-gray-600">Each franchise sale = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee)} upfront + {fmt(a.gmvPerFranchiseMonthly * 12 * a.royaltyRate)}/yr royalties + {fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup * 12)}/yr materials</span></p>
                   <p className="text-gray-600">Net per franchise sale (after comm.) = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee - a.commissionPerFranchise)}</span></p>
                   <p className="text-gray-600">Annual recurring per franchise = <span className="font-bold text-indigo-700">{fmt(a.gmvPerFranchiseMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialMarkup + a.platformFeeRate))}</span></p>
