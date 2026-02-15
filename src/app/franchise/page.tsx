@@ -30,6 +30,7 @@ interface Assumptions {
   tier1Price: number;
   tier2Price: number;
   jvPrice: number;
+  franchiseMembershipPrice: number;
   gmvPerFranchiseMonthly: number;
   gmvPerJVMonthly: number;
   gmvRampMonths: number;
@@ -66,6 +67,7 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   tier1Price: 1000,
   tier2Price: 2000,
   jvPrice: 3500,
+  franchiseMembershipPrice: 3500,
   gmvPerFranchiseMonthly: 83333,
   gmvPerJVMonthly: 83333,
   gmvRampMonths: 4,
@@ -171,7 +173,8 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     const revTier1 = activeTier1 * a.tier1Price;
     const revTier2 = activeTier2 * a.tier2Price;
     const revJV = activeJV * a.jvPrice;
-    const revMembership = revTier1 + revTier2 + revJV;
+    const revFranchiseDues = activeFranchises * a.franchiseMembershipPrice;
+    const revMembership = revTier1 + revTier2 + revJV + revFranchiseDues;
     const revHeadOffice = revFranchiseFees + revMembership;
     // Royalties on all GMV (franchises + JVs)
     const revRoyalties = systemGMV * a.royaltyRate;
@@ -199,7 +202,7 @@ function calcScenario(a: Assumptions, sc: Scenario) {
       activeTier1, activeTier2, activeJV, activeFranchises,
       activeMembers: activeTier1 + activeTier2 + activeJV,
       franchiseGMV, jvGMV, systemGMV,
-      revFranchiseFees, revTier1, revTier2, revJV, revMembership, revHeadOffice,
+      revFranchiseFees, revTier1, revTier2, revJV, revFranchiseDues, revMembership, revHeadOffice,
       revRoyalties, revPlatformFees, materialVolume, revMaterialMarkup, totalRevenue,
       costCommissions, costOverhead, totalCost,
       operatingProfit,
@@ -295,7 +298,7 @@ function Section({ title, children, color, collapsible, defaultOpen }: {
 }
 
 const CHART_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
-const PIE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#f97316", "#ec4899"];
+const PIE_COLORS = ["#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#f97316", "#ec4899"];
 
 // ─── Main App ───────────────────────────────────────────────────────────────
 export default function FranchiseDashboard() {
@@ -581,9 +584,10 @@ export default function FranchiseDashboard() {
                       <Pie
                         data={[
                           { name: "Franchise Fees", value: result.rows.reduce((s, r) => s + r.revFranchiseFees, 0) },
+                          { name: "Franchise Dues", value: result.rows.reduce((s, r) => s + r.revFranchiseDues, 0) },
                           { name: "Tier 1", value: result.rows.reduce((s, r) => s + r.revTier1, 0) },
                           { name: "Tier 2", value: result.rows.reduce((s, r) => s + r.revTier2, 0) },
-                          { name: "JV", value: result.rows.reduce((s, r) => s + r.revJV, 0) },
+                          { name: "JV Dues", value: result.rows.reduce((s, r) => s + r.revJV, 0) },
                           { name: "Royalties", value: result.rows.reduce((s, r) => s + r.revRoyalties, 0) },
                           { name: "Material Markup", value: result.rows.reduce((s, r) => s + r.revMaterialMarkup, 0) },
                           { name: "Platform Fees", value: result.rows.reduce((s, r) => s + r.revPlatformFees, 0) },
@@ -773,6 +777,7 @@ export default function FranchiseDashboard() {
                 <InputField label="Tier 1 Monthly" value={a.tier1Price} onChange={v => updateAssumption('tier1Price', v)} prefix="$" step={100} />
                 <InputField label="Tier 2 Monthly" value={a.tier2Price} onChange={v => updateAssumption('tier2Price', v)} prefix="$" step={100} />
                 <InputField label="JV Monthly" value={a.jvPrice} onChange={v => updateAssumption('jvPrice', v)} prefix="$" step={100} />
+                <InputField label="Franchise Monthly Dues" value={a.franchiseMembershipPrice} onChange={v => updateAssumption('franchiseMembershipPrice', v)} prefix="$" step={100} />
               </Section>
               <Section title="Commissions" color="amber">
                 <InputField label="Per Franchise Sale" value={a.commissionPerFranchise} onChange={v => updateAssumption('commissionPerFranchise', v)} prefix="$" step={500} />
@@ -827,7 +832,7 @@ export default function FranchiseDashboard() {
                   <p className="text-gray-600">Each additional JV = <span className="font-bold text-indigo-700">{fmt(a.jvPrice * 12)}/yr dues + {fmt(a.gmvPerJVMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialMarkup + a.platformFeeRate))}/yr from GMV</span></p>
                   <p className="text-gray-600">Each franchise sale = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee)} upfront + {fmt(a.gmvPerFranchiseMonthly * 12 * a.royaltyRate)}/yr royalties + {fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup * 12)}/yr materials</span></p>
                   <p className="text-gray-600">Net per franchise sale (after comm.) = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee - a.commissionPerFranchise)}</span></p>
-                  <p className="text-gray-600">Annual recurring per franchise = <span className="font-bold text-indigo-700">{fmt(a.gmvPerFranchiseMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialMarkup + a.platformFeeRate))}</span></p>
+                  <p className="text-gray-600">Annual recurring per franchise = <span className="font-bold text-indigo-700">{fmt(a.franchiseMembershipPrice * 12 + a.gmvPerFranchiseMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialMarkup + a.platformFeeRate))}</span> (dues + GMV income)</p>
                 </div>
               </Section>
             </div>
