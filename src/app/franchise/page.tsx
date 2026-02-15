@@ -36,6 +36,8 @@ interface Assumptions {
   churnRateTier2: number;
   churnRateJV: number;
   churnRateFranchise: number;
+  materialPctOfGMV: number;
+  materialMarkup: number;
 }
 interface AppState { assumptions: Assumptions; scenarios: Scenario[]; activeScenario: number; }
 
@@ -69,6 +71,8 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   churnRateTier2: 0.01,
   churnRateJV: 0.005,
   churnRateFranchise: 0.005,
+  materialPctOfGMV: 0.40,
+  materialMarkup: 0.10,
 };
 
 function buildFlatScenario(): Scenario {
@@ -157,7 +161,10 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     const revHeadOffice = revFranchiseFees + revMembership;
     const revRoyalties = systemGMV * a.royaltyRate;
     const revPlatformFees = (revMembership + systemGMV) * a.platformFeeRate;
-    const totalRevenue = revHeadOffice + revRoyalties + revPlatformFees;
+    // Material sales: franchises buy materials through HQ
+    const materialVolume = systemGMV * a.materialPctOfGMV;
+    const revMaterialMarkup = materialVolume * a.materialMarkup;
+    const totalRevenue = revHeadOffice + revRoyalties + revPlatformFees + revMaterialMarkup;
 
     // Costs
     const costCommFranchise = newF * a.commissionPerFranchise;
@@ -178,7 +185,7 @@ function calcScenario(a: Assumptions, sc: Scenario) {
       activeMembers: activeTier1 + activeTier2 + activeJV,
       systemGMV,
       revFranchiseFees, revTier1, revTier2, revJV, revMembership, revHeadOffice,
-      revRoyalties, revPlatformFees, totalRevenue,
+      revRoyalties, revPlatformFees, materialVolume, revMaterialMarkup, totalRevenue,
       costCommissions, costOverhead, totalCost,
       operatingProfit,
       cumProfit: 0,
@@ -190,7 +197,7 @@ function calcScenario(a: Assumptions, sc: Scenario) {
   rows.forEach(r => { cum += r.operatingProfit; cumR += r.totalRevenue; r.cumProfit = cum; r.cumRevenue = cumR; });
 
   // Yearly aggregation
-  const years: { year: number; revenue: number; cost: number; profit: number; franchiseFees: number; membership: number; royalties: number; platformFees: number; commissions: number; overhead: number; endMembers: number; endFranchises: number; gmv: number; }[] = [];
+  const years: { year: number; revenue: number; cost: number; profit: number; franchiseFees: number; membership: number; royalties: number; platformFees: number; materialMarkup: number; commissions: number; overhead: number; endMembers: number; endFranchises: number; gmv: number; }[] = [];
   for (let y = 0; y < Math.ceil(rows.length / 12); y++) {
     const slice = rows.slice(y * 12, (y + 1) * 12);
     if (slice.length === 0) continue;
@@ -204,6 +211,7 @@ function calcScenario(a: Assumptions, sc: Scenario) {
       membership: slice.reduce((s, r) => s + r.revMembership, 0),
       royalties: slice.reduce((s, r) => s + r.revRoyalties, 0),
       platformFees: slice.reduce((s, r) => s + r.revPlatformFees, 0),
+      materialMarkup: slice.reduce((s, r) => s + r.revMaterialMarkup, 0),
       commissions: slice.reduce((s, r) => s + r.costCommissions, 0),
       overhead: slice.reduce((s, r) => s + r.costOverhead, 0),
       endMembers: last.activeMembers,
@@ -272,7 +280,7 @@ function Section({ title, children, color, collapsible, defaultOpen }: {
 }
 
 const CHART_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
-const PIE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+const PIE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#f97316", "#ec4899"];
 
 // ─── Main App ───────────────────────────────────────────────────────────────
 export default function FranchiseDashboard() {
@@ -483,7 +491,7 @@ export default function FranchiseDashboard() {
               <KPI label="End Members" value={result.lastRow.activeMembers.toString()} subtext={"T1: " + result.lastRow.activeTier1 + " T2: " + result.lastRow.activeTier2 + " JV: " + result.lastRow.activeJV} />
               <KPI label="End Franchises" value={result.lastRow.activeFranchises.toString()} subtext={fmt(result.lastRow.systemGMV) + "/mo GMV"} />
               <KPI label="Break-Even" value={result.breakEvenMonth >= 0 ? "Month " + (result.breakEvenMonth + 1) : "Never"} subtext={result.breakEvenMonth >= 0 ? monthLabels[result.breakEvenMonth] : ""} positive={result.breakEvenMonth >= 0} />
-              <KPI label="Monthly Recurring" value={fmt(result.lastRow.revMembership)} subtext={fmt(result.lastRow.revMembership * 12) + "/year"} positive />
+              <KPI label="Monthly Recurring" value={fmt(result.lastRow.revMembership + result.lastRow.revMaterialMarkup + result.lastRow.revRoyalties)} subtext={"Memberships + Materials + Royalties"} positive />
             </div>
 
             {/* Revenue & Profit Chart */}
@@ -500,6 +508,7 @@ export default function FranchiseDashboard() {
                     <Bar dataKey="revFranchiseFees" name="Franchise Fees" fill="#8b5cf6" stackId="rev" opacity={0.8} />
                     <Bar dataKey="revMembership" name="Membership" fill="#3b82f6" stackId="rev" opacity={0.8} />
                     <Bar dataKey="revRoyalties" name="Royalties" fill="#10b981" stackId="rev" opacity={0.8} />
+                    <Bar dataKey="revMaterialMarkup" name="Material Markup" fill="#f97316" stackId="rev" opacity={0.8} />
                     <Line dataKey="operatingProfit" name="Op. Profit" stroke="#f59e0b" strokeWidth={3} dot={false} />
                     <Line dataKey="cumProfit" name="Cumulative" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" dot={false} />
                     <ReferenceLine y={0} stroke="#999" strokeDasharray="3 3" />
@@ -541,6 +550,7 @@ export default function FranchiseDashboard() {
                           { name: "Tier 2", value: result.rows.reduce((s, r) => s + r.revTier2, 0) },
                           { name: "JV", value: result.rows.reduce((s, r) => s + r.revJV, 0) },
                           { name: "Royalties", value: result.rows.reduce((s, r) => s + r.revRoyalties, 0) },
+                          { name: "Material Markup", value: result.rows.reduce((s, r) => s + r.revMaterialMarkup, 0) },
                           { name: "Platform Fees", value: result.rows.reduce((s, r) => s + r.revPlatformFees, 0) },
                         ].filter(d => d.value > 0)}
                         dataKey="value" cx="50%" cy="50%" outerRadius={70}
@@ -593,6 +603,7 @@ export default function FranchiseDashboard() {
                     <th className="text-right py-2 px-1">Franchise $</th>
                     <th className="text-right py-2 px-1">Membership $</th>
                     <th className="text-right py-2 px-1">Royalties</th>
+                    <th className="text-right py-2 px-1 text-orange-700">Material $</th>
                     <th className="text-right py-2 px-1">Platform</th>
                     <th className="text-right py-2 px-1 font-bold bg-green-50">Revenue</th>
                     <th className="text-right py-2 px-1">Commissions</th>
@@ -618,6 +629,7 @@ export default function FranchiseDashboard() {
                         <td className="text-right py-1.5 px-1">{r.revFranchiseFees ? fmtK(r.revFranchiseFees) : '-'}</td>
                         <td className="text-right py-1.5 px-1">{fmtK(r.revMembership)}</td>
                         <td className="text-right py-1.5 px-1">{r.revRoyalties ? fmtK(r.revRoyalties) : '-'}</td>
+                        <td className="text-right py-1.5 px-1 text-orange-600">{r.revMaterialMarkup ? fmtK(r.revMaterialMarkup) : '-'}</td>
                         <td className="text-right py-1.5 px-1 text-gray-400">{fmt(r.revPlatformFees)}</td>
                         <td className="text-right py-1.5 px-1 font-bold bg-green-50/50">{fmtK(r.totalRevenue)}</td>
                         <td className="text-right py-1.5 px-1">{r.costCommissions ? fmtK(r.costCommissions) : '-'}</td>
@@ -754,6 +766,16 @@ export default function FranchiseDashboard() {
                   <p className="mt-1">You earn {fmtPct(a.royaltyRate)} royalties + {fmtPct(a.platformFeeRate)} platform fees on all GMV.</p>
                 </div>
               </Section>
+              <Section title="Material Sales" color="amber">
+                <InputField label="Materials % of GMV" value={a.materialPctOfGMV * 100} onChange={v => updateAssumption('materialPctOfGMV', v / 100)} suffix="%" step={1} min={0} max={100} />
+                <InputField label="HQ Markup on Materials" value={a.materialMarkup * 100} onChange={v => updateAssumption('materialMarkup', v / 100)} suffix="%" step={0.5} min={0} max={50} />
+                <div className="mt-3 p-3 bg-amber-100 rounded-lg text-xs text-amber-800">
+                  <p className="font-bold mb-1">Material Sales Model</p>
+                  <p>Franchises purchase {fmtPctWhole(a.materialPctOfGMV * 100)} of their GMV in materials through HQ.</p>
+                  <p className="mt-1">HQ earns a {fmtPctWhole(a.materialMarkup * 100)} markup = <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup)}/franchise/month</span> at steady state.</p>
+                  <p className="mt-1">Per franchise annual material profit: <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup * 12)}</span></p>
+                </div>
+              </Section>
             </div>
             <div className="col-span-4 space-y-4">
               <Section title="Churn Rates (Monthly)" color="red">
@@ -772,8 +794,9 @@ export default function FranchiseDashboard() {
                   <p className="text-gray-600">Each additional Tier 1 member = <span className="font-bold text-indigo-700">{fmt(a.tier1Price * 12)}/year</span></p>
                   <p className="text-gray-600">Each additional Tier 2 member = <span className="font-bold text-indigo-700">{fmt(a.tier2Price * 12)}/year</span></p>
                   <p className="text-gray-600">Each additional JV = <span className="font-bold text-indigo-700">{fmt(a.jvPrice * 12)}/year</span></p>
-                  <p className="text-gray-600">Each franchise sale = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee)} upfront + {fmt(a.gmvPerFranchiseMonthly * 12 * a.royaltyRate)}/yr royalties</span></p>
+                  <p className="text-gray-600">Each franchise sale = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee)} upfront + {fmt(a.gmvPerFranchiseMonthly * 12 * a.royaltyRate)}/yr royalties + {fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup * 12)}/yr materials</span></p>
                   <p className="text-gray-600">Net per franchise sale (after comm.) = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee - a.commissionPerFranchise)}</span></p>
+                  <p className="text-gray-600">Annual recurring per franchise = <span className="font-bold text-indigo-700">{fmt(a.gmvPerFranchiseMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialMarkup + a.platformFeeRate))}</span></p>
                 </div>
               </Section>
             </div>
@@ -869,6 +892,7 @@ export default function FranchiseDashboard() {
                       <th className="text-right py-2 px-2">Franchise Fees</th>
                       <th className="text-right py-2 px-2">Membership</th>
                       <th className="text-right py-2 px-2">Royalties</th>
+                      <th className="text-right py-2 px-2 text-orange-700">Material Markup</th>
                       <th className="text-right py-2 px-2">Platform</th>
                       <th className="text-right py-2 px-2 font-bold bg-green-50">Revenue</th>
                       <th className="text-right py-2 px-2 font-bold bg-red-50">Cost</th>
@@ -886,6 +910,7 @@ export default function FranchiseDashboard() {
                         <td className="text-right py-2 px-2">{fmt(y.franchiseFees)}</td>
                         <td className="text-right py-2 px-2">{fmt(y.membership)}</td>
                         <td className="text-right py-2 px-2">{fmt(y.royalties)}</td>
+                        <td className="text-right py-2 px-2 text-orange-600">{fmt(y.materialMarkup)}</td>
                         <td className="text-right py-2 px-2">{fmt(y.platformFees)}</td>
                         <td className="text-right py-2 px-2 font-bold bg-green-50">{fmt(y.revenue)}</td>
                         <td className="text-right py-2 px-2 font-bold bg-red-50">{fmt(y.cost)}</td>
