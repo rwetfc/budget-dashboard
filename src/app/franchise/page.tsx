@@ -392,6 +392,12 @@ export default function FranchiseDashboard() {
     URL.revokeObjectURL(url);
   };
 
+  // Backfill any missing assumption fields with defaults so old JSON files don't produce NaN
+  const migrateState = (data: any): AppState => {
+    const merged: Assumptions = { ...DEFAULT_ASSUMPTIONS, ...data.assumptions };
+    return { ...data, assumptions: merged };
+  };
+
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -400,7 +406,7 @@ export default function FranchiseDashboard() {
       try {
         const data = JSON.parse(ev.target?.result as string);
         if (data.assumptions && data.scenarios) {
-          setState(data);
+          setState(migrateState(data));
           setSaveMsg("Loaded from file!");
           setTimeout(() => setSaveMsg(""), 2000);
         } else {
@@ -510,7 +516,7 @@ export default function FranchiseDashboard() {
           <div className="max-w-7xl mx-auto flex items-center gap-3 overflow-x-auto">
             <span className="text-xs font-medium text-amber-700 whitespace-nowrap">Saved:</span>
             {savedVersions.map((v, i) => (
-              <button key={i} onClick={() => { setState(JSON.parse(v.data)); setSaveMsg("Loaded: " + v.name); setTimeout(() => setSaveMsg(""), 2000); }}
+              <button key={i} onClick={() => { setState(migrateState(JSON.parse(v.data))); setSaveMsg("Loaded: " + v.name); setTimeout(() => setSaveMsg(""), 2000); }}
                 className="flex items-center gap-2 px-3 py-1 rounded-full text-xs bg-white border border-amber-300 hover:bg-amber-100 transition whitespace-nowrap">
                 <span className="font-medium text-amber-800">{v.name}</span>
                 <span className="text-amber-500">{v.date}</span>
