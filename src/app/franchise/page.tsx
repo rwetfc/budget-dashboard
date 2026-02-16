@@ -121,7 +121,15 @@ const DEFAULT_STATE: AppState = {
 
 // ─── Formatting ─────────────────────────────────────────────────────────────
 function fmt(n: number) { return n >= 0 ? "$" + Math.round(n).toLocaleString() : "($" + Math.abs(Math.round(n)).toLocaleString() + ")"; }
-function fmtK(n: number) { return n >= 0 ? "$" + (n / 1000).toFixed(0) + "K" : "($" + (Math.abs(n) / 1000).toFixed(0) + "K)"; }
+function fmtK(n: number) {
+  const abs = Math.abs(n);
+  const sign = n < 0;
+  let s: string;
+  if (abs >= 1000000) s = "$" + (abs / 1000000).toFixed(1) + "M";
+  else if (abs >= 1000) s = "$" + (abs / 1000).toFixed(0) + "K";
+  else s = "$" + Math.round(abs).toString();
+  return sign ? "(" + s + ")" : s;
+}
 function fmtM(n: number) { return n >= 0 ? "$" + (n / 1000000).toFixed(2) + "M" : "($" + (Math.abs(n) / 1000000).toFixed(2) + "M)"; }
 function fmtPct(n: number) { return (n * 100).toFixed(1) + "%"; }
 function fmtPctWhole(n: number) { return n.toFixed(1) + "%"; }
