@@ -557,7 +557,6 @@ export default function FranchiseDashboard() {
                     <Bar dataKey="revRoyalties" name="Royalties" fill="#10b981" stackId="rev" opacity={0.8} />
                     <Bar dataKey="revMaterialMarkup" name="Material Markup" fill="#f97316" stackId="rev" opacity={0.8} />
                     <Line dataKey="operatingProfit" name="Op. Profit" stroke="#f59e0b" strokeWidth={3} dot={false} />
-                    <Line dataKey="cumProfit" name="Cumulative" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" dot={false} />
                     <ReferenceLine y={0} stroke="#999" strokeDasharray="3 3" />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -611,6 +610,33 @@ export default function FranchiseDashboard() {
                   </ResponsiveContainer>
                 </div>
               </div>
+            </div>
+
+            {/* Cumulative Revenue & Profit */}
+            <div className="bg-white rounded-xl border p-4 shadow-sm">
+              <h3 className="font-bold text-sm text-gray-800 mb-3">Cumulative Revenue & Profit</h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <ComposedChart data={result.rows}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 9 }} interval={2} angle={-45} textAnchor="end" height={50} />
+                  <YAxis tickFormatter={fmtK} tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(v: number) => fmt(v)} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <defs>
+                    <linearGradient id="cumRevGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="cumProfitGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <Area dataKey="cumRevenue" name="Cumulative Revenue" stroke="#3b82f6" fill="url(#cumRevGrad)" strokeWidth={2} />
+                  <Area dataKey="cumProfit" name="Cumulative Profit" stroke="#10b981" fill="url(#cumProfitGrad)" strokeWidth={2.5} />
+                  <ReferenceLine y={0} stroke="#999" strokeDasharray="3 3" />
+                </ComposedChart>
+              </ResponsiveContainer>
             </div>
 
             {/* Growth Metrics */}
