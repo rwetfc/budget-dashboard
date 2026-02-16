@@ -25,6 +25,12 @@ interface Assumptions {
   commissionPerTier2: number;
   commissionPerJV: number;
   overheadMonthly: number;
+  // Overhead scaling: $25K salary unit supports X of each type
+  overheadSalaryUnit: number;        // cost per "support unit" ($25K)
+  overheadCapFranchiseJV: number;    // franchises+JVs per unit (5)
+  overheadCapTier1: number;          // tier1 members per unit (15)
+  overheadCapTier2: number;          // tier2 members per unit (12)
+  overheadScaleExponent: number;     // <1 = economies of scale (0.8 default)
   royaltyRate: number;
   platformFeeRate: number;
   tier1Price: number;
@@ -62,6 +68,11 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   commissionPerTier2: 500,
   commissionPerJV: 500,
   overheadMonthly: 25000,
+  overheadSalaryUnit: 25000,
+  overheadCapFranchiseJV: 5,
+  overheadCapTier1: 15,
+  overheadCapTier2: 12,
+  overheadScaleExponent: 0.8,
   royaltyRate: 0.04,
   platformFeeRate: 0.0033,
   tier1Price: 1000,
@@ -114,6 +125,22 @@ function fmtK(n: number) { return n >= 0 ? "$" + (n / 1000).toFixed(0) + "K" : "
 function fmtM(n: number) { return n >= 0 ? "$" + (n / 1000000).toFixed(2) + "M" : "($" + (Math.abs(n) / 1000000).toFixed(2) + "M)"; }
 function fmtPct(n: number) { return (n * 100).toFixed(1) + "%"; }
 function fmtPctWhole(n: number) { return n.toFixed(1) + "%"; }
+
+// ─── Overhead Scaling ───────────────────────────────────────────────────────
+// Each $25K salary unit supports 5 franchises/JVs, 15 T1, or 12 T2.
+// We compute "load units" needed, then apply a power curve (exponent < 1)
+// so doubling load doesn't double cost — economies of scale.
+// Formula: overhead = base + salaryUnit * loadUnits^exponent
+function calcOverhead(a: Assumptions, franchises: number, jv: number, t1: number, t2: number): number {
+  const loadFranJV = (franchises + jv) / Math.max(1, a.overheadCapFranchiseJV);
+  const loadT1 = t1 / Math.max(1, a.overheadCapTier1);
+  const loadT2 = t2 / Math.max(1, a.overheadCapTier2);
+  const rawUnits = loadFranJV + loadT1 + loadT2;
+  // Apply economies of scale: units^exponent (exponent < 1 means sublinear)
+  const scaledUnits = rawUnits > 0 ? Math.pow(rawUnits, a.overheadScaleExponent) : 0;
+  // Base overhead is the minimum floor, salary scales on top
+  return a.overheadMonthly + a.overheadSalaryUnit * scaledUnits;
+}
 
 // ─── Calculation Engine ─────────────────────────────────────────────────────
 function calcScenario(a: Assumptions, sc: Scenario) {
@@ -190,7 +217,7 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     const costCommTier2 = newT2 * a.commissionPerTier2;
     const costCommJV = newJV * a.commissionPerJV;
     const costCommissions = costCommFranchise + costCommTier1 + costCommTier2 + costCommJV;
-    const costOverhead = a.overheadMonthly;
+    const costOverhead = calcOverhead(a, activeFranchises, activeJV, activeTier1, activeTier2);
     const totalCost = costCommissions + costOverhead;
 
     const operatingProfit = totalRevenue - totalCost;
@@ -313,6 +340,11 @@ export default function FranchiseDashboard() {
   const [renamingIdx, setRenamingIdx] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Commission calculator state
+  const [calcFranchises, setCalcFranchises] = useState(5);
+  const [calcTier1, setCalcTier1] = useState(10);
+  const [calcTier2, setCalcTier2] = useState(5);
+  const [calcJV, setCalcJV] = useState(2);
 
   const { assumptions: a, scenarios, activeScenario } = state;
   const sc = scenarios[activeScenario];
@@ -892,9 +924,27 @@ export default function FranchiseDashboard() {
             </div>
             <div className="col-span-4 space-y-4">
               <Section title="Operations" color="green">
-                <InputField label="Monthly Overhead" value={a.overheadMonthly} onChange={v => updateAssumption('overheadMonthly', v)} prefix="$" step={1000} />
+                <InputField label="Base Overhead (floor)" value={a.overheadMonthly} onChange={v => updateAssumption('overheadMonthly', v)} prefix="$" step={1000} />
+                <InputField label="Salary Unit Cost" value={a.overheadSalaryUnit} onChange={v => updateAssumption('overheadSalaryUnit', v)} prefix="$" step={1000} />
+                <InputField label="Fran/JV per Unit" value={a.overheadCapFranchiseJV} onChange={v => updateAssumption('overheadCapFranchiseJV', v)} step={1} min={1} />
+                <InputField label="Tier 1 per Unit" value={a.overheadCapTier1} onChange={v => updateAssumption('overheadCapTier1', v)} step={1} min={1} />
+                <InputField label="Tier 2 per Unit" value={a.overheadCapTier2} onChange={v => updateAssumption('overheadCapTier2', v)} step={1} min={1} />
+                <InputField label="Scale Exponent" value={a.overheadScaleExponent} onChange={v => updateAssumption('overheadScaleExponent', v)} step={0.05} min={0.3} max={1.5} />
                 <InputField label="Royalty Rate" value={a.royaltyRate * 100} onChange={v => updateAssumption('royaltyRate', v / 100)} suffix="%" step={0.5} />
                 <InputField label="Platform Fee Rate" value={a.platformFeeRate * 100} onChange={v => updateAssumption('platformFeeRate', v / 100)} suffix="%" step={0.01} />
+                <div className="mt-3 p-3 bg-green-100 rounded-lg text-xs text-green-800">
+                  <p className="font-bold mb-1">📊 How Overhead Scales</p>
+                  <p>Base overhead of <span className="font-bold">{fmt(a.overheadMonthly)}/mo</span> covers rent, tools, insurance — fixed regardless of size.</p>
+                  <p className="mt-1">Each <span className="font-bold">{fmt(a.overheadSalaryUnit)}</span> salary unit supports <span className="font-bold">{a.overheadCapFranchiseJV}</span> franchises/JVs, <span className="font-bold">{a.overheadCapTier1}</span> T1, or <span className="font-bold">{a.overheadCapTier2}</span> T2 members.</p>
+                  <p className="mt-1">Scale exponent of <span className="font-bold">{a.overheadScaleExponent}</span> means {a.overheadScaleExponent < 1 ? 'economies of scale — doubling clients costs only ' + (Math.pow(2, a.overheadScaleExponent) * 100).toFixed(0) + '% more staff' : a.overheadScaleExponent === 1 ? 'linear scaling — no economies' : 'diseconomies — scaling gets harder'}.</p>
+                  <div className="mt-2 border-t border-green-300 pt-2">
+                    <p className="font-bold mb-1">Example overhead at different scales:</p>
+                    {[{ f: 5, j: 1, t1: 10, t2: 5 }, { f: 20, j: 3, t1: 30, t2: 15 }, { f: 50, j: 5, t1: 60, t2: 30 }].map(ex => (
+                      <p key={ex.f} className="text-green-700">{ex.f}F + {ex.j}JV + {ex.t1}T1 + {ex.t2}T2 → <span className="font-bold">{fmt(calcOverhead(a, ex.f, ex.j, ex.t1, ex.t2))}/mo</span></p>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-green-600 italic">Current end-state: {fmt(calcOverhead(a, result.lastRow.activeFranchises, result.lastRow.activeJV, result.lastRow.activeTier1, result.lastRow.activeTier2))}/mo</p>
+                </div>
               </Section>
               <Section title="Franchise Economics" color="purple">
                 <InputField label="GMV per Franchise/Month" value={a.gmvPerFranchiseMonthly} onChange={v => updateAssumption('gmvPerFranchiseMonthly', v)} prefix="$" step={5000} />
@@ -938,6 +988,80 @@ export default function FranchiseDashboard() {
                   <p className="text-gray-600">Net per franchise sale (after comm.) = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee - a.commissionPerFranchise)}</span></p>
                   <p className="text-gray-600">Annual recurring per franchise = <span className="font-bold text-indigo-700">{fmt(a.franchiseMembershipPrice * 12 + a.gmvPerFranchiseMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialMarkup + a.platformFeeRate))}</span> (software licenses + GMV income)</p>
                 </div>
+              </Section>
+              <Section title="💰 Sales Commission Calculator" color="green">
+                {(() => {
+                  const commF = calcFranchises * a.commissionPerFranchise;
+                  const commT1 = calcTier1 * a.commissionPerTier1;
+                  const commT2 = calcTier2 * a.commissionPerTier2;
+                  const commJV = calcJV * a.commissionPerJV;
+                  const totalComm = commF + commT1 + commT2 + commJV;
+                  // What those sales generate for the company annually
+                  const coRevFranchiseFees = calcFranchises * a.franchiseFee;
+                  const coRevRecurringMo = calcTier1 * a.tier1Price + calcTier2 * a.tier2Price + calcJV * a.jvPrice + calcFranchises * a.franchiseMembershipPrice;
+                  const coRevGMVannual = (calcFranchises + calcJV) * a.gmvPerFranchiseMonthly * 12;
+                  const coRevRoyalties = coRevGMVannual * a.royaltyRate;
+                  const coRevMaterials = coRevGMVannual * a.materialPctOfGMV * a.materialMarkup;
+                  const coTotalYear1 = coRevFranchiseFees + coRevRecurringMo * 12 + coRevRoyalties + coRevMaterials;
+                  return (
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-500">If you sell this many in a year, here&apos;s what you&apos;ll earn and what it generates:</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600">Franchises</label>
+                          <input type="number" min={0} value={calcFranchises} onChange={e => setCalcFranchises(parseInt(e.target.value) || 0)} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600">Tier 1</label>
+                          <input type="number" min={0} value={calcTier1} onChange={e => setCalcTier1(parseInt(e.target.value) || 0)} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600">Tier 2</label>
+                          <input type="number" min={0} value={calcTier2} onChange={e => setCalcTier2(parseInt(e.target.value) || 0)} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600">JV</label>
+                          <input type="number" min={0} value={calcJV} onChange={e => setCalcJV(parseInt(e.target.value) || 0)} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                        </div>
+                      </div>
+                      <div className="bg-green-100 rounded-lg p-3 space-y-2 text-xs">
+                        <p className="font-bold text-green-900 text-sm">Your Commission Earnings:</p>
+                        <div className="grid grid-cols-2 gap-1 text-green-800">
+                          <span>Franchises ({calcFranchises} × {fmt(a.commissionPerFranchise)})</span>
+                          <span className="text-right font-bold">{fmt(commF)}</span>
+                          <span>Tier 1 ({calcTier1} × {fmt(a.commissionPerTier1)})</span>
+                          <span className="text-right font-bold">{fmt(commT1)}</span>
+                          <span>Tier 2 ({calcTier2} × {fmt(a.commissionPerTier2)})</span>
+                          <span className="text-right font-bold">{fmt(commT2)}</span>
+                          <span>JV ({calcJV} × {fmt(a.commissionPerJV)})</span>
+                          <span className="text-right font-bold">{fmt(commJV)}</span>
+                        </div>
+                        <div className="border-t border-green-300 pt-2 flex justify-between">
+                          <span className="font-bold text-green-900">Total Commission:</span>
+                          <span className="font-bold text-green-900 text-lg">{fmt(totalComm)}</span>
+                        </div>
+                      </div>
+                      <div className="bg-blue-50 rounded-lg p-3 space-y-2 text-xs">
+                        <p className="font-bold text-blue-900 text-sm">What This Generates for HQ (Year 1):</p>
+                        <div className="grid grid-cols-2 gap-1 text-blue-800">
+                          <span>Franchise fees (upfront)</span>
+                          <span className="text-right font-bold">{fmt(coRevFranchiseFees)}</span>
+                          <span>Recurring memberships/yr</span>
+                          <span className="text-right font-bold">{fmt(coRevRecurringMo * 12)}</span>
+                          <span>Royalties/yr (on GMV)</span>
+                          <span className="text-right font-bold">{fmt(coRevRoyalties)}</span>
+                          <span>Material markup/yr</span>
+                          <span className="text-right font-bold">{fmt(coRevMaterials)}</span>
+                        </div>
+                        <div className="border-t border-blue-300 pt-2 flex justify-between">
+                          <span className="font-bold text-blue-900">Total HQ Revenue (Y1):</span>
+                          <span className="font-bold text-blue-900 text-lg">{fmt(coTotalYear1)}</span>
+                        </div>
+                        <p className="text-blue-600 italic mt-1">Commission cost is {(totalComm / coTotalYear1 * 100).toFixed(1)}% of Y1 revenue — {totalComm / coTotalYear1 < 0.1 ? 'very efficient' : totalComm / coTotalYear1 < 0.2 ? 'reasonable' : 'watch this ratio'}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
               </Section>
             </div>
           </div>
