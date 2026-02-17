@@ -46,6 +46,7 @@ interface Assumptions {
   churnRateFranchise: number;
   materialPctOfGMV: number;
   materialMarkup: number;
+  materialStartMonth: number;   // 0-indexed month when material distribution begins (0 = Jan 2026)
 }
 interface AppState { assumptions: Assumptions; scenarios: Scenario[]; activeScenario: number; }
 
@@ -88,6 +89,7 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   churnRateFranchise: 0.005,
   materialPctOfGMV: 0.40,
   materialMarkup: 0.10,
+  materialStartMonth: 15,   // April 2027 (0-indexed from Jan 2026)
 };
 
 function buildFlatScenario(): Scenario {
@@ -168,11 +170,11 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     const newT2 = m.tier2;
     const newJV = m.jv;
 
-    // Churn (applied before adding new)
-    const churnedT1 = Math.round(activeTier1 * a.churnRateTier1);
-    const churnedT2 = Math.round(activeTier2 * a.churnRateTier2);
-    const churnedJV = Math.round(activeJV * a.churnRateJV);
-    const churnedF = Math.round(activeFranchises * a.churnRateFranchise);
+    // Churn (applied before adding new) — floor so partial churn doesn't round up to a full loss
+    const churnedT1 = Math.floor(activeTier1 * a.churnRateTier1);
+    const churnedT2 = Math.floor(activeTier2 * a.churnRateTier2);
+    const churnedJV = Math.floor(activeJV * a.churnRateJV);
+    const churnedF = Math.floor(activeFranchises * a.churnRateFranchise);
 
     activeTier1 = Math.max(0, activeTier1 - churnedT1 + newT1);
     activeTier2 = Math.max(0, activeTier2 - churnedT2 + newT2);
@@ -214,8 +216,9 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     // Royalties on all GMV (franchises + JVs)
     const revRoyalties = systemGMV * a.royaltyRate;
     const revPlatformFees = systemGMV * a.platformFeeRate;
-    // Material sales: franchises + JVs buy materials through HQ
-    const materialVolume = systemGMV * a.materialPctOfGMV;
+    // Material sales: franchises + JVs buy materials through HQ (only after start month)
+    const materialActive = i >= a.materialStartMonth;
+    const materialVolume = materialActive ? systemGMV * a.materialPctOfGMV : 0;
     const revMaterialMarkup = materialVolume * a.materialMarkup;
     const totalRevenue = revHeadOffice + revRoyalties + revPlatformFees + revMaterialMarkup;
 
@@ -965,9 +968,22 @@ export default function FranchiseDashboard() {
               <Section title="Material Sales" color="amber">
                 <InputField label="Materials % of GMV" value={a.materialPctOfGMV * 100} onChange={v => updateAssumption('materialPctOfGMV', v / 100)} suffix="%" step={1} min={0} max={100} />
                 <InputField label="HQ Markup on Materials" value={a.materialMarkup * 100} onChange={v => updateAssumption('materialMarkup', v / 100)} suffix="%" step={0.5} min={0} max={50} />
+                <div className="mb-3">
+                  <label className="text-xs font-medium text-gray-600">Distribution Starts</label>
+                  <select
+                    value={a.materialStartMonth}
+                    onChange={e => updateAssumption('materialStartMonth', parseInt(e.target.value))}
+                    className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 mt-0.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                  >
+                    {MONTH_LABELS(60).map((label, idx) => (
+                      <option key={idx} value={idx}>{label}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="mt-3 p-3 bg-amber-100 rounded-lg text-xs text-amber-800">
                   <p className="font-bold mb-1">Material Sales Model</p>
-                  <p>Franchises & JVs purchase {fmtPctWhole(a.materialPctOfGMV * 100)} of their GMV in materials through HQ.</p>
+                  <p>Material distribution begins <span className="font-bold">{MONTH_LABELS(60)[a.materialStartMonth]}</span>. No material revenue before that date.</p>
+                  <p className="mt-1">Franchises & JVs purchase {fmtPctWhole(a.materialPctOfGMV * 100)} of their GMV in materials through HQ.</p>
                   <p className="mt-1">HQ earns a {fmtPctWhole(a.materialMarkup * 100)} markup = <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup)}/franchise/month</span> at steady state.</p>
                   <p className="mt-1">Per franchise annual material profit: <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup * 12)}</span></p>
                 </div>
