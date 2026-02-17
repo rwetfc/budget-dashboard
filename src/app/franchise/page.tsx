@@ -50,7 +50,7 @@ interface Assumptions {
 interface AppState { assumptions: Assumptions; scenarios: Scenario[]; activeScenario: number; }
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
-const MONTHS_36 = (): MonthSales[] => Array.from({ length: 60 }, () => ({ franchises: 0, tier1: 0, tier2: 0, jv: 0 }));
+const MONTHS_60 = (): MonthSales[] => Array.from({ length: 60 }, () => ({ franchises: 0, tier1: 0, tier2: 0, jv: 0 }));
 const MONTH_LABELS = (n: number) => {
   const labels: string[] = [];
   let y = 2026, m = 0;
@@ -91,7 +91,7 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
 };
 
 function buildFlatScenario(): Scenario {
-  const m = MONTHS_36();
+  const m = MONTHS_60();
   // Apr-Sep 2026: 3 franchise, 4 T1, 2 T2 per month
   for (let i = 3; i <= 8; i++) { m[i] = { franchises: 3, tier1: 4, tier2: 2, jv: 0 }; }
   // Oct 2026: 1 franchise, 3 T1, 1 T2
@@ -102,7 +102,7 @@ function buildFlatScenario(): Scenario {
 }
 
 function buildExpansionScenario(): Scenario {
-  const m = MONTHS_36();
+  const m = MONTHS_60();
   for (let i = 3; i <= 8; i++) { m[i] = { franchises: 3, tier1: 4, tier2: 2, jv: 0 }; }
   m[9] = { franchises: 1, tier1: 3, tier2: 1, jv: 0 };
   m[10] = { franchises: 1, tier1: 3, tier2: 0, jv: 0 };
@@ -235,7 +235,7 @@ function calcScenario(a: Assumptions, sc: Scenario) {
       monthIdx: i,
       newF, newT1, newT2, newJV,
       activeTier1, activeTier2, activeJV, activeFranchises,
-      activeMembers: activeTier1 + activeTier2 + activeJV,
+      activeMembers: activeTier1 + activeTier2,
       franchiseGMV, jvGMV, systemGMV,
       revFranchiseFees, revTier1, revTier2, revJV, revFranchiseDues, revMembership, revHeadOffice,
       revRoyalties, revPlatformFees, materialVolume, revMaterialMarkup, totalRevenue,
@@ -270,7 +270,7 @@ function calcScenario(a: Assumptions, sc: Scenario) {
       endMembers: last.activeTier1 + last.activeTier2,
       endJV: last.activeJV,
       endFranchises: last.activeFranchises,
-      gmv: last.systemGMV * 12,
+      gmv: slice.reduce((s, r) => s + r.systemGMV, 0),
     });
   }
 
@@ -340,8 +340,6 @@ const PIE_COLORS = ["#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5
 export default function FranchiseDashboard() {
   const [state, setState] = useState<AppState>(DEFAULT_STATE);
   const [activeTab, setActiveTab] = useState("overview");
-  const [showSaveLoad, setShowSaveLoad] = useState<string | false>(false);
-  const [saveData, setSaveData] = useState("");
   const [saveMsg, setSaveMsg] = useState("");
   const [savedVersions, setSavedVersions] = useState<{ name: string; data: string; date: string }[]>([]);
   const [saveName, setSaveName] = useState("");
@@ -944,7 +942,7 @@ export default function FranchiseDashboard() {
                   <p className="font-bold mb-1">📊 How Overhead Scales</p>
                   <p>Base overhead of <span className="font-bold">{fmt(a.overheadMonthly)}/mo</span> covers rent, tools, insurance — fixed regardless of size.</p>
                   <p className="mt-1">Each <span className="font-bold">{fmt(a.overheadSalaryUnit)}</span> salary unit supports <span className="font-bold">{a.overheadCapFranchiseJV}</span> franchises/JVs, <span className="font-bold">{a.overheadCapTier1}</span> T1, or <span className="font-bold">{a.overheadCapTier2}</span> T2 members.</p>
-                  <p className="mt-1">Scale exponent of <span className="font-bold">{a.overheadScaleExponent}</span> means {a.overheadScaleExponent < 1 ? 'economies of scale — doubling clients costs only ' + (Math.pow(2, a.overheadScaleExponent) * 100).toFixed(0) + '% more staff' : a.overheadScaleExponent === 1 ? 'linear scaling — no economies' : 'diseconomies — scaling gets harder'}.</p>
+                  <p className="mt-1">Scale exponent of <span className="font-bold">{a.overheadScaleExponent}</span> means {a.overheadScaleExponent < 1 ? 'economies of scale — doubling clients costs only ' + ((Math.pow(2, a.overheadScaleExponent) - 1) * 100).toFixed(0) + '% more staff (not 100%)' : a.overheadScaleExponent === 1 ? 'linear scaling — no economies' : 'diseconomies — scaling gets harder'}.</p>
                   <div className="mt-2 border-t border-green-300 pt-2">
                     <p className="font-bold mb-1">Example overhead at different scales:</p>
                     {[{ f: 5, j: 1, t1: 10, t2: 5 }, { f: 20, j: 3, t1: 30, t2: 15 }, { f: 50, j: 5, t1: 60, t2: 30 }].map(ex => (
@@ -1005,9 +1003,13 @@ export default function FranchiseDashboard() {
                   const commJV = calcJV * a.commissionPerJV;
                   const totalComm = commF + commT1 + commT2 + commJV;
                   // What those sales generate for the company annually
+                  // Account for GMV ramp: avg ramp factor over 12 months
+                  const rampAvg12 = Array.from({ length: 12 }, (_, i) => Math.min((i + 1) / a.gmvRampMonths, 1)).reduce((s, v) => s + v, 0) / 12;
                   const coRevFranchiseFees = calcFranchises * a.franchiseFee;
                   const coRevRecurringMo = calcTier1 * a.tier1Price + calcTier2 * a.tier2Price + calcJV * a.jvPrice + calcFranchises * a.franchiseMembershipPrice;
-                  const coRevGMVannual = (calcFranchises + calcJV) * a.gmvPerFranchiseMonthly * 12;
+                  const coRevFranchiseGMVannual = calcFranchises * a.gmvPerFranchiseMonthly * 12 * rampAvg12;
+                  const coRevJVGMVannual = calcJV * a.gmvPerJVMonthly * 12 * rampAvg12;
+                  const coRevGMVannual = coRevFranchiseGMVannual + coRevJVGMVannual;
                   const coRevRoyalties = coRevGMVannual * a.royaltyRate;
                   const coRevMaterials = coRevGMVannual * a.materialPctOfGMV * a.materialMarkup;
                   const coTotalYear1 = coRevFranchiseFees + coRevRecurringMo * 12 + coRevRoyalties + coRevMaterials;
@@ -1065,7 +1067,8 @@ export default function FranchiseDashboard() {
                           <span className="font-bold text-blue-900">Total HQ Revenue (Y1):</span>
                           <span className="font-bold text-blue-900 text-lg">{fmt(coTotalYear1)}</span>
                         </div>
-                        <p className="text-blue-600 italic mt-1">Commission cost is {(totalComm / coTotalYear1 * 100).toFixed(1)}% of Y1 revenue — {totalComm / coTotalYear1 < 0.1 ? 'very efficient' : totalComm / coTotalYear1 < 0.2 ? 'reasonable' : 'watch this ratio'}</p>
+                        {coTotalYear1 > 0 && <p className="text-blue-600 italic mt-1">Commission cost is {(totalComm / coTotalYear1 * 100).toFixed(1)}% of Y1 revenue — {totalComm / coTotalYear1 < 0.1 ? 'very efficient' : totalComm / coTotalYear1 < 0.2 ? 'reasonable' : 'watch this ratio'}</p>}
+                        {a.gmvRampMonths > 1 && <p className="text-blue-500 italic mt-1">GMV adjusted for {a.gmvRampMonths}-month ramp (avg {(rampAvg12 * 100).toFixed(0)}% of steady state in Y1)</p>}
                       </div>
                     </div>
                   );
