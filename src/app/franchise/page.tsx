@@ -459,6 +459,52 @@ export default function FranchiseDashboard() {
     e.target.value = "";
   };
 
+  // Seasonal auto-distribute: type a total in the header and it fills months with seasonal weighting
+  // Franchises/JV: selling season Jul-Oct (months 6-9 within each year)
+  // Memberships (T1/T2): heavier Apr-Sep (months 3-8), lighter rest of year
+  const seasonalDistribute = (field: keyof MonthSales, total: number) => {
+    setState(prev => {
+      const newScenarios = [...prev.scenarios];
+      const newMonths = [...newScenarios[prev.activeScenario].months].map(m => ({ ...m }));
+      const numMonths = newMonths.length;
+
+      // Build seasonal weights per month
+      const weights: number[] = [];
+      for (let i = 0; i < numMonths; i++) {
+        const calMonth = i % 12; // 0=Jan, 3=Apr, 6=Jul, 9=Oct, 11=Dec
+        if (field === 'franchises' || field === 'jv') {
+          // Franchise/JV selling: Jul(6), Aug(7), Sep(8), Oct(9)
+          weights.push(calMonth >= 6 && calMonth <= 9 ? 1 : 0);
+        } else {
+          // Memberships: Apr-Sep heavy (weight 2), rest light (weight 1)
+          weights.push(calMonth >= 3 && calMonth <= 8 ? 2 : 1);
+        }
+      }
+
+      const totalWeight = weights.reduce((s, w) => s + w, 0);
+      if (totalWeight === 0) return prev; // no valid months
+
+      // Distribute using largest remainder method for whole numbers
+      const raw = weights.map(w => (w / totalWeight) * total);
+      const floored = raw.map(v => Math.floor(v));
+      let remainder = total - floored.reduce((s, v) => s + v, 0);
+      // Give remainders to months with largest fractional parts
+      const fractions = raw.map((v, i) => ({ i, frac: v - floored[i] }))
+        .filter(f => f.frac > 0)
+        .sort((a, b) => b.frac - a.frac);
+      for (let j = 0; j < remainder && j < fractions.length; j++) {
+        floored[fractions[j].i]++;
+      }
+
+      for (let i = 0; i < numMonths; i++) {
+        newMonths[i][field] = floored[i];
+      }
+
+      newScenarios[prev.activeScenario] = { ...newScenarios[prev.activeScenario], months: newMonths };
+      return { ...prev, scenarios: newScenarios };
+    });
+  };
+
   // Tab down columns in sales pipeline instead of across rows
   const handlePipelineTab = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Tab') return;
@@ -850,7 +896,8 @@ export default function FranchiseDashboard() {
               <div className="flex justify-between items-center mb-3">
                 <div>
                   <h3 className="font-bold text-sm text-gray-800">Monthly New Sales (edit each cell)</h3>
-                  <p className="text-xs text-gray-500">Enter the number of new sales per month. Existing members carry forward automatically.</p>
+                  <p className="text-xs text-gray-500">Edit the <span className="font-bold text-indigo-600">⚡ TOTALS</span> row to auto-distribute with seasonality, or edit individual months directly.</p>
+                  <p className="text-xs text-gray-400">Franchises/JV → Jul-Oct selling season · Memberships → heavier Apr-Sep · Tab moves down column</p>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => {
@@ -873,7 +920,7 @@ export default function FranchiseDashboard() {
                     <th className="text-right py-2 px-2 font-bold bg-green-50 w-24">Revenue</th>
                     <th className="text-right py-2 px-2 font-bold w-24">Profit</th>
                   </tr>
-                  {/* Totals row */}
+                  {/* Totals row — editable: type a number to auto-distribute with seasonality */}
                   {(() => {
                     const totals = result.rows.reduce((acc, r) => ({
                       totalRevenue: acc.totalRevenue + r.totalRevenue,
@@ -884,13 +931,14 @@ export default function FranchiseDashboard() {
                     const totalNewT2 = sc.months.reduce((s, m) => s + m.tier2, 0);
                     const totalNewJV = sc.months.reduce((s, m) => s + m.jv, 0);
                     const last = result.lastRow;
+                    const totalInputClass = "w-full text-center text-xs font-bold border border-indigo-300 rounded p-1 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none";
                     return (
                       <tr className="border-b-2 border-indigo-300 bg-indigo-50 font-bold text-xs">
-                        <td className="py-2 px-2 font-bold text-indigo-800">TOTALS</td>
-                        <td className="text-center py-2 px-1 text-purple-700">{totalNewF}</td>
-                        <td className="text-center py-2 px-1">{totalNewT1}</td>
-                        <td className="text-center py-2 px-1">{totalNewT2}</td>
-                        <td className="text-center py-2 px-1">{totalNewJV}</td>
+                        <td className="py-2 px-2 font-bold text-indigo-800" title="Edit totals to auto-distribute with seasonality">⚡ TOTALS</td>
+                        <td className="py-1 px-1"><input type="number" min={0} value={totalNewF} onChange={e => seasonalDistribute('franchises', parseInt(e.target.value) || 0)} className={totalInputClass} title="Distributes to Jul-Oct selling season" /></td>
+                        <td className="py-1 px-1"><input type="number" min={0} value={totalNewT1} onChange={e => seasonalDistribute('tier1', parseInt(e.target.value) || 0)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
+                        <td className="py-1 px-1"><input type="number" min={0} value={totalNewT2} onChange={e => seasonalDistribute('tier2', parseInt(e.target.value) || 0)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
+                        <td className="py-1 px-1"><input type="number" min={0} value={totalNewJV} onChange={e => seasonalDistribute('jv', parseInt(e.target.value) || 0)} className={totalInputClass} title="Distributes to Jul-Oct selling season" /></td>
                         <td className="text-right py-2 px-2 bg-indigo-100">{last.activeTier1 + last.activeTier2}</td>
                         <td className="text-right py-2 px-2 bg-indigo-100">{last.activeJV}</td>
                         <td className="text-right py-2 px-2 bg-indigo-100">{last.activeFranchises}</td>
