@@ -1187,44 +1187,48 @@ export default function FranchiseDashboard() {
 
         {/* ─── COMPARE TAB ─────────────────────────────────────────────── */}
         {activeTab === "compare" && (
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-hidden">
             <div className="grid grid-cols-2 gap-4">
               {/* Side by Side KPIs */}
-              <div className="bg-white rounded-xl border p-4 shadow-sm">
+              <div className="bg-white rounded-xl border p-4 shadow-sm overflow-hidden">
                 <h3 className="font-bold text-sm text-gray-800 mb-3">Scenario Comparison</h3>
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b-2">
-                      <th className="text-left py-2">Metric</th>
-                      {scenarios.map((s, i) => <th key={i} className="text-right py-2 px-2">
-                        <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: s.color }} />
-                        {s.name}
-                      </th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      { label: "Total Revenue", get: (r: any) => fmtM(r.totalRevenue) },
-                      { label: "Total Profit", get: (r: any) => fmtM(r.totalProfit) },
-                      { label: "End Members (T1+T2)", get: (r: any) => r.lastRow.activeTier1 + r.lastRow.activeTier2 },
-                      { label: "End JV Partners", get: (r: any) => r.lastRow.activeJV },
-                      { label: "End Franchises", get: (r: any) => r.lastRow.activeFranchises },
-                      { label: "Monthly Recurring (end)", get: (r: any) => fmt(r.lastRow.revMembership) },
-                      { label: "Monthly GMV (end)", get: (r: any) => fmt(r.lastRow.systemGMV) },
-                      { label: "Break-Even Month", get: (r: any) => r.breakEvenMonth >= 0 ? "Month " + (r.breakEvenMonth + 1) : "Never" },
-                      { label: "Avg Monthly Profit", get: (r: any) => fmt(r.totalProfit / r.rows.length) },
-                    ].map(metric => (
-                      <tr key={metric.label} className="border-b">
-                        <td className="py-2 font-medium text-gray-600">{metric.label}</td>
-                        {results.map((r, i) => <td key={i} className="text-right py-2 px-2 font-medium">{metric.get(r)}</td>)}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" style={{ minWidth: 400 }}>
+                    <thead>
+                      <tr className="border-b-2 whitespace-nowrap">
+                        <th className="text-left py-2 pr-2">Metric</th>
+                        {scenarios.map((s, i) => <th key={i} className="text-right py-2 px-2 max-w-[120px]">
+                          <div className="flex items-center justify-end gap-1 truncate">
+                            <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                            <span className="truncate">{s.name}</span>
+                          </div>
+                        </th>)}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {[
+                        { label: "Total Revenue", get: (r: any) => fmtM(r.totalRevenue) },
+                        { label: "Total Profit", get: (r: any) => fmtM(r.totalProfit) },
+                        { label: "End Mbrs (T1+T2)", get: (r: any) => r.lastRow.activeTier1 + r.lastRow.activeTier2 },
+                        { label: "End JV Partners", get: (r: any) => r.lastRow.activeJV },
+                        { label: "End Franchises", get: (r: any) => r.lastRow.activeFranchises },
+                        { label: "Recurring/Mo", get: (r: any) => fmtK(r.lastRow.revMembership) },
+                        { label: "GMV/Mo (end)", get: (r: any) => fmtK(r.lastRow.systemGMV) },
+                        { label: "Break-Even", get: (r: any) => r.breakEvenMonth >= 0 ? "Mo " + (r.breakEvenMonth + 1) : "Never" },
+                        { label: "Avg Mo Profit", get: (r: any) => fmtK(r.totalProfit / r.rows.length) },
+                      ].map(metric => (
+                        <tr key={metric.label} className="border-b whitespace-nowrap">
+                          <td className="py-2 pr-2 font-medium text-gray-600">{metric.label}</td>
+                          {results.map((r, i) => <td key={i} className="text-right py-2 px-2 font-medium">{metric.get(r)}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               {/* Cumulative Profit Overlay */}
-              <div className="bg-white rounded-xl border p-4 shadow-sm">
+              <div className="bg-white rounded-xl border p-4 shadow-sm overflow-hidden">
                 <h3 className="font-bold text-sm text-gray-800 mb-3">Cumulative Profit Overlay</h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <ComposedChart>
@@ -1245,7 +1249,7 @@ export default function FranchiseDashboard() {
             </div>
 
             {/* Revenue Overlay */}
-            <div className="bg-white rounded-xl border p-4 shadow-sm">
+            <div className="bg-white rounded-xl border p-4 shadow-sm overflow-hidden">
               <h3 className="font-bold text-sm text-gray-800 mb-3">Monthly Revenue Overlay</h3>
               <ResponsiveContainer width="100%" height={250}>
                 <ComposedChart>
@@ -1264,13 +1268,13 @@ export default function FranchiseDashboard() {
             </div>
 
             {/* ── EBITDA Valuation Calculator ── */}
-            <div className="bg-white rounded-xl border p-4 shadow-sm">
-              <div className="flex justify-between items-start mb-4">
-                <div>
+            <div className="bg-white rounded-xl border p-4 shadow-sm overflow-hidden">
+              <div className="flex justify-between items-start gap-3 mb-4">
+                <div className="min-w-0 flex-1">
                   <h3 className="font-bold text-sm text-gray-800">Valuation Calculator</h3>
-                  <p className="text-xs text-gray-500 mt-1">Based on EBITDA multiple applied to each scenario&apos;s best trailing 12-month operating profit</p>
+                  <p className="text-xs text-gray-500 mt-1 truncate">EBITDA multiple × best trailing 12-month operating profit</p>
                 </div>
-                <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-3 py-2 border border-indigo-200">
+                <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-3 py-2 border border-indigo-200 flex-shrink-0">
                   <label className="text-xs font-medium text-indigo-700 whitespace-nowrap">EBITDA Multiple:</label>
                   <input type="number" min={1} max={30} step={0.5} value={ebitdaMultiple}
                     onChange={e => setEbitdaMultiple(parseFloat(e.target.value) || 5)}
@@ -1281,7 +1285,6 @@ export default function FranchiseDashboard() {
               <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${scenarios.length}, 1fr)` }}>
                 {scenarios.map((s, si) => {
                   const r = results[si];
-                  // Find best trailing 12-month EBITDA (operating profit)
                   let bestEbitda = 0;
                   let bestYear = 0;
                   for (const y of r.years) {
@@ -1290,54 +1293,52 @@ export default function FranchiseDashboard() {
                       bestYear = y.year;
                     }
                   }
-                  // Also compute last full year EBITDA
                   const lastFullYear = r.years[r.years.length - 1];
                   const lastYearEbitda = lastFullYear?.profit ?? 0;
-                  // Conservative = last full year, Average = best year, High = best year with premium
                   const conservativeEbitda = Math.min(lastYearEbitda, bestEbitda);
                   const avgEbitda = bestEbitda;
-                  const highEbitda = bestEbitda * 1.2; // 20% growth premium on best year
+                  const highEbitda = bestEbitda * 1.2;
 
                   const conservativeVal = conservativeEbitda * (ebitdaMultiple - 1);
                   const avgVal = avgEbitda * ebitdaMultiple;
                   const highVal = highEbitda * (ebitdaMultiple + 1);
 
                   return (
-                    <div key={si} className="rounded-xl border-2 p-4" style={{ borderColor: s.color + '40' }}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="w-3 h-3 rounded-full" style={{ backgroundColor: s.color }} />
-                        <span className="font-bold text-sm text-gray-800">{s.name}</span>
+                    <div key={si} className="rounded-xl border-2 p-3 overflow-hidden" style={{ borderColor: s.color + '40' }}>
+                      <div className="flex items-center gap-2 mb-3 min-w-0">
+                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                        <span className="font-bold text-sm text-gray-800 truncate">{s.name}</span>
                       </div>
-                      <div className="space-y-3">
-                        <div className="text-xs text-gray-500">
-                          Best Year EBITDA: <span className="font-bold text-gray-800">{fmt(bestEbitda)}</span>
+                      <div className="space-y-2">
+                        <div className="text-xs text-gray-500 truncate">
+                          Best EBITDA: <span className="font-bold text-gray-800">{fmtK(bestEbitda)}</span>
                           <span className="text-gray-400 ml-1">({bestYear})</span>
                         </div>
-                        <div className="text-xs text-gray-500">
-                          Last Year EBITDA: <span className="font-bold text-gray-800">{fmt(lastYearEbitda)}</span>
+                        <div className="text-xs text-gray-500 truncate">
+                          Last Yr: <span className="font-bold text-gray-800">{fmtK(lastYearEbitda)}</span>
                           <span className="text-gray-400 ml-1">({lastFullYear?.year})</span>
                         </div>
-                        <div className="border-t pt-3 space-y-2">
-                          <div className="flex justify-between items-center p-2 rounded-lg bg-amber-50 border border-amber-200">
-                            <div>
+                        <div className="border-t pt-2 space-y-1.5">
+                          <div className="flex justify-between items-center p-2 rounded-lg bg-amber-50 border border-amber-200 gap-2">
+                            <div className="min-w-0">
                               <div className="text-[10px] font-medium text-amber-700 uppercase">Conservative</div>
-                              <div className="text-[10px] text-amber-600">{fmtK(conservativeEbitda)} × {(ebitdaMultiple - 1).toFixed(1)}x</div>
+                              <div className="text-[10px] text-amber-600 truncate">{fmtK(conservativeEbitda)} × {(ebitdaMultiple - 1).toFixed(1)}x</div>
                             </div>
-                            <div className="text-lg font-bold text-amber-700">{fmtM(conservativeVal)}</div>
+                            <div className="text-base font-bold text-amber-700 whitespace-nowrap flex-shrink-0">{fmtM(conservativeVal)}</div>
                           </div>
-                          <div className="flex justify-between items-center p-2 rounded-lg bg-blue-50 border border-blue-200">
-                            <div>
+                          <div className="flex justify-between items-center p-2 rounded-lg bg-blue-50 border border-blue-200 gap-2">
+                            <div className="min-w-0">
                               <div className="text-[10px] font-medium text-blue-700 uppercase">Average</div>
-                              <div className="text-[10px] text-blue-600">{fmtK(avgEbitda)} × {ebitdaMultiple.toFixed(1)}x</div>
+                              <div className="text-[10px] text-blue-600 truncate">{fmtK(avgEbitda)} × {ebitdaMultiple.toFixed(1)}x</div>
                             </div>
-                            <div className="text-lg font-bold text-blue-700">{fmtM(avgVal)}</div>
+                            <div className="text-base font-bold text-blue-700 whitespace-nowrap flex-shrink-0">{fmtM(avgVal)}</div>
                           </div>
-                          <div className="flex justify-between items-center p-2 rounded-lg bg-green-50 border border-green-200">
-                            <div>
+                          <div className="flex justify-between items-center p-2 rounded-lg bg-green-50 border border-green-200 gap-2">
+                            <div className="min-w-0">
                               <div className="text-[10px] font-medium text-green-700 uppercase">High</div>
-                              <div className="text-[10px] text-green-600">{fmtK(highEbitda)} × {(ebitdaMultiple + 1).toFixed(1)}x</div>
+                              <div className="text-[10px] text-green-600 truncate">{fmtK(highEbitda)} × {(ebitdaMultiple + 1).toFixed(1)}x</div>
                             </div>
-                            <div className="text-lg font-bold text-green-700">{fmtM(highVal)}</div>
+                            <div className="text-base font-bold text-green-700 whitespace-nowrap flex-shrink-0">{fmtM(highVal)}</div>
                           </div>
                         </div>
                       </div>
@@ -1348,40 +1349,42 @@ export default function FranchiseDashboard() {
             </div>
 
             {/* Annual Comparison Table */}
-            <div className="bg-white rounded-xl border p-4 shadow-sm">
+            <div className="bg-white rounded-xl border p-4 shadow-sm overflow-hidden">
               <h3 className="font-bold text-sm text-gray-800 mb-3">Annual P&L by Scenario</h3>
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
+                <table className="w-full text-xs whitespace-nowrap" style={{ minWidth: 700 }}>
                   <thead>
                     <tr className="border-b-2 border-gray-300">
                       <th className="text-left py-2 px-2">Scenario</th>
                       <th className="text-left py-2 px-2">Year</th>
-                      <th className="text-right py-2 px-2">Franchise Fees</th>
-                      <th className="text-right py-2 px-2">Membership</th>
-                      <th className="text-right py-2 px-2">Royalties</th>
-                      <th className="text-right py-2 px-2 text-orange-700">Material Markup</th>
-                      <th className="text-right py-2 px-2">Platform</th>
-                      <th className="text-right py-2 px-2 font-bold bg-green-50">Revenue</th>
-                      <th className="text-right py-2 px-2 font-bold bg-red-50">Cost</th>
+                      <th className="text-right py-2 px-1">Fran Fees</th>
+                      <th className="text-right py-2 px-1">Mbr</th>
+                      <th className="text-right py-2 px-1">Royalty</th>
+                      <th className="text-right py-2 px-1 text-orange-700">Matl</th>
+                      <th className="text-right py-2 px-1">Platform</th>
+                      <th className="text-right py-2 px-1 font-bold bg-green-50">Revenue</th>
+                      <th className="text-right py-2 px-1 font-bold bg-red-50">Cost</th>
                       <th className="text-right py-2 px-2 font-bold">Profit</th>
                     </tr>
                   </thead>
                   <tbody>
                     {scenarios.map((s, si) => results[si].years.map((y, yi) => (
                       <tr key={`${si}-${yi}`} className={`border-b ${yi === 0 && si > 0 ? 'border-t-2 border-gray-400' : ''}`}>
-                        {yi === 0 && <td rowSpan={results[si].years.length} className="py-2 px-2 font-bold align-top">
-                          <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: s.color }} />
-                          {s.name}
+                        {yi === 0 && <td rowSpan={results[si].years.length} className="py-2 px-2 font-bold align-top max-w-[100px]">
+                          <div className="flex items-center gap-1 truncate">
+                            <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                            <span className="truncate">{s.name}</span>
+                          </div>
                         </td>}
                         <td className="py-2 px-2 font-medium">{y.year}</td>
-                        <td className="text-right py-2 px-2">{fmt(y.franchiseFees)}</td>
-                        <td className="text-right py-2 px-2">{fmt(y.membership)}</td>
-                        <td className="text-right py-2 px-2">{fmt(y.royalties)}</td>
-                        <td className="text-right py-2 px-2 text-orange-600">{fmt(y.materialMarkup)}</td>
-                        <td className="text-right py-2 px-2">{fmt(y.platformFees)}</td>
-                        <td className="text-right py-2 px-2 font-bold bg-green-50">{fmt(y.revenue)}</td>
-                        <td className="text-right py-2 px-2 font-bold bg-red-50">{fmt(y.cost)}</td>
-                        <td className={`text-right py-2 px-2 font-bold ${y.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(y.profit)}</td>
+                        <td className="text-right py-2 px-1">{fmtK(y.franchiseFees)}</td>
+                        <td className="text-right py-2 px-1">{fmtK(y.membership)}</td>
+                        <td className="text-right py-2 px-1">{fmtK(y.royalties)}</td>
+                        <td className="text-right py-2 px-1 text-orange-600">{fmtK(y.materialMarkup)}</td>
+                        <td className="text-right py-2 px-1">{fmtK(y.platformFees)}</td>
+                        <td className="text-right py-2 px-1 font-bold bg-green-50">{fmtK(y.revenue)}</td>
+                        <td className="text-right py-2 px-1 font-bold bg-red-50">{fmtK(y.cost)}</td>
+                        <td className={`text-right py-2 px-2 font-bold ${y.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmtK(y.profit)}</td>
                       </tr>
                     )))}
                   </tbody>
