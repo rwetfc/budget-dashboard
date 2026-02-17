@@ -288,10 +288,10 @@ function calcScenario(a: Assumptions, sc: Scenario) {
 // ─── Components ─────────────────────────────────────────────────────────────
 function KPI({ label, value, subtext, positive, negative }: { label: string; value: string; subtext?: string; positive?: boolean; negative?: boolean }) {
   return (
-    <div className={`rounded-xl p-4 ${negative ? 'bg-red-50 border border-red-200' : positive ? 'bg-green-50 border border-green-200' : 'bg-white border border-gray-200'} shadow-sm`}>
-      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</div>
-      <div className={`text-xl font-bold mt-1 ${negative ? 'text-red-600' : positive ? 'text-green-600' : 'text-gray-900'}`}>{value}</div>
-      {subtext && <div className="text-xs text-gray-400 mt-1">{subtext}</div>}
+    <div className={`rounded-xl p-3 ${negative ? 'bg-red-50 border border-red-200' : positive ? 'bg-green-50 border border-green-200' : 'bg-white border border-gray-200'} shadow-sm overflow-hidden`}>
+      <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wide truncate">{label}</div>
+      <div className={`text-lg font-bold mt-1 truncate ${negative ? 'text-red-600' : positive ? 'text-green-600' : 'text-gray-900'}`}>{value}</div>
+      {subtext && <div className="text-[10px] text-gray-400 mt-1 truncate">{subtext}</div>}
     </div>
   );
 }
@@ -354,6 +354,8 @@ export default function FranchiseDashboard() {
   const [calcTier1, setCalcTier1] = useState(10);
   const [calcTier2, setCalcTier2] = useState(5);
   const [calcJV, setCalcJV] = useState(2);
+  // EBITDA Valuation calculator state
+  const [ebitdaMultiple, setEbitdaMultiple] = useState(5);
 
   const { assumptions: a, scenarios, activeScenario } = state;
   const sc = scenarios[activeScenario];
@@ -630,14 +632,14 @@ export default function FranchiseDashboard() {
         {activeTab === "overview" && (
           <div className="space-y-4">
             {/* KPIs */}
-            <div className="grid grid-cols-7 gap-3">
-              <KPI label="Total Revenue" value={fmtM(result.totalRevenue)} subtext={result.rows.length + " months"} positive />
+            <div className="grid grid-cols-7 gap-2">
+              <KPI label="Total Revenue" value={fmtM(result.totalRevenue)} subtext={result.rows.length + " mo"} positive />
               <KPI label="Total Profit" value={fmtM(result.totalProfit)} positive={result.totalProfit > 0} negative={result.totalProfit < 0} />
-              <KPI label="Members (T1+T2)" value={(result.lastRow.activeTier1 + result.lastRow.activeTier2).toString()} subtext={"T1: " + result.lastRow.activeTier1 + " · T2: " + result.lastRow.activeTier2} />
-              <KPI label="JV Partners" value={result.lastRow.activeJV.toString()} subtext={fmt(result.lastRow.jvGMV) + "/mo GMV"} />
-              <KPI label="Franchises" value={result.lastRow.activeFranchises.toString()} subtext={fmt(result.lastRow.franchiseGMV) + "/mo GMV"} />
-              <KPI label="Break-Even" value={result.breakEvenMonth >= 0 ? "Month " + (result.breakEvenMonth + 1) : "Never"} subtext={result.breakEvenMonth >= 0 ? monthLabels[result.breakEvenMonth] : ""} positive={result.breakEvenMonth >= 0} />
-              <KPI label="Monthly Recurring" value={fmt(result.lastRow.revMembership + result.lastRow.revMaterialMarkup + result.lastRow.revRoyalties)} subtext={"Memberships + Materials + Royalties"} positive />
+              <KPI label="Members (T1+T2)" value={(result.lastRow.activeTier1 + result.lastRow.activeTier2).toString()} subtext={"T1:" + result.lastRow.activeTier1 + " T2:" + result.lastRow.activeTier2} />
+              <KPI label="JV Partners" value={result.lastRow.activeJV.toString()} subtext={fmtK(result.lastRow.jvGMV) + "/mo"} />
+              <KPI label="Franchises" value={result.lastRow.activeFranchises.toString()} subtext={fmtK(result.lastRow.franchiseGMV) + "/mo"} />
+              <KPI label="Break-Even" value={result.breakEvenMonth >= 0 ? "Mo " + (result.breakEvenMonth + 1) : "Never"} subtext={result.breakEvenMonth >= 0 ? monthLabels[result.breakEvenMonth] : ""} positive={result.breakEvenMonth >= 0} />
+              <KPI label="Recurring/Mo" value={fmtK(result.lastRow.revMembership + result.lastRow.revMaterialMarkup + result.lastRow.revRoyalties)} subtext={"Mbr+Matl+Roy"} positive />
             </div>
 
             {/* Revenue & Profit Chart */}
@@ -763,29 +765,29 @@ export default function FranchiseDashboard() {
           <div className="space-y-4">
             <div className="bg-white rounded-xl border p-4 shadow-sm overflow-x-auto">
               <h3 className="font-bold text-sm text-gray-800 mb-3">Monthly P&L Detail</h3>
-              <table className="w-full text-xs min-w-[1200px]">
+              <table className="w-full text-xs" style={{ minWidth: 1200 }}>
                 <thead>
-                  <tr className="border-b-2 border-gray-300">
+                  <tr className="border-b-2 border-gray-300 whitespace-nowrap">
                     <th className="text-left py-2 px-2 sticky left-0 bg-white font-bold">Month</th>
                     <th className="text-right py-2 px-1">New F</th>
                     <th className="text-right py-2 px-1">New T1</th>
                     <th className="text-right py-2 px-1">New T2</th>
                     <th className="text-right py-2 px-1">New JV</th>
-                    <th className="text-right py-2 px-1 bg-blue-50">Members</th>
+                    <th className="text-right py-2 px-1 bg-blue-50">Mbrs</th>
                     <th className="text-right py-2 px-1 bg-blue-50">JV</th>
-                    <th className="text-right py-2 px-1 bg-blue-50">Franchises</th>
-                    <th className="text-right py-2 px-1">Franchise $</th>
-                    <th className="text-right py-2 px-1">Software Lic</th>
-                    <th className="text-right py-2 px-1">Membership $</th>
-                    <th className="text-right py-2 px-1">Royalties</th>
-                    <th className="text-right py-2 px-1 text-orange-700">Material $</th>
+                    <th className="text-right py-2 px-1 bg-blue-50">Fran</th>
+                    <th className="text-right py-2 px-1">Fran $</th>
+                    <th className="text-right py-2 px-1">Soft Lic</th>
+                    <th className="text-right py-2 px-1">Mbr $</th>
+                    <th className="text-right py-2 px-1">Royalty</th>
+                    <th className="text-right py-2 px-1 text-orange-700">Matl $</th>
                     <th className="text-right py-2 px-1">Platform</th>
                     <th className="text-right py-2 px-1 font-bold bg-green-50">Revenue</th>
-                    <th className="text-right py-2 px-1">Commissions</th>
+                    <th className="text-right py-2 px-1">Comm</th>
                     <th className="text-right py-2 px-1">Overhead</th>
                     <th className="text-right py-2 px-1 font-bold bg-red-50">Cost</th>
                     <th className="text-right py-2 px-2 font-bold">Profit</th>
-                    <th className="text-right py-2 px-2">Cumulative</th>
+                    <th className="text-right py-2 px-2">Cumul</th>
                   </tr>
                   {/* Totals row */}
                   {(() => {
@@ -893,32 +895,32 @@ export default function FranchiseDashboard() {
             </Section>
 
             <div className="bg-white rounded-xl border p-4 shadow-sm overflow-x-auto">
-              <div className="flex justify-between items-center mb-3">
-                <div>
-                  <h3 className="font-bold text-sm text-gray-800">Monthly New Sales (edit each cell)</h3>
-                  <p className="text-xs text-gray-500">Edit the <span className="font-bold text-indigo-600">⚡ TOTALS</span> row to auto-distribute with seasonality, or edit individual months directly.</p>
-                  <p className="text-xs text-gray-400">Franchises/JV → Jul-Oct selling season · Memberships → heavier Apr-Sep · Tab moves down column</p>
+              <div className="flex justify-between items-start gap-3 mb-3">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-sm text-gray-800 truncate">Monthly New Sales (edit each cell)</h3>
+                  <p className="text-xs text-gray-500 whitespace-nowrap overflow-hidden text-ellipsis">Edit <span className="font-bold text-indigo-600">⚡ TOTALS</span> row to auto-distribute with seasonality, or edit months directly.</p>
+                  <p className="text-xs text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis">Franchises/JV → Jul-Oct · Memberships → Apr-Sep heavier · Tab moves down column</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-shrink-0">
                   <button onClick={() => {
                     const m = [...sc.months];
                     if (m.length < 120) { for (let i = 0; i < 12; i++) m.push({ franchises: 0, tier1: 0, tier2: 0, jv: 0 }); updateScenarioField('months', m); }
-                  }} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700">+ Add Year</button>
+                  }} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 whitespace-nowrap">+ Add Year</button>
                 </div>
               </div>
-              <table className="w-full text-xs">
+              <table className="w-full text-xs" style={{ minWidth: 700 }}>
                 <thead>
                   <tr className="border-b-2 border-gray-300">
-                    <th className="text-left py-2 px-2 font-bold w-24">Month</th>
-                    <th className="text-center py-2 px-1 font-bold text-purple-700 w-20">Franchises</th>
-                    <th className="text-center py-2 px-1 font-bold text-blue-700 w-20">Tier 1</th>
-                    <th className="text-center py-2 px-1 font-bold text-green-700 w-20">Tier 2</th>
-                    <th className="text-center py-2 px-1 font-bold text-amber-700 w-20">JV</th>
-                    <th className="text-right py-2 px-2 font-bold bg-gray-50 w-20">Members</th>
-                    <th className="text-right py-2 px-2 font-bold bg-gray-50 w-20">Active JV</th>
-                    <th className="text-right py-2 px-2 font-bold bg-gray-50 w-20">Active Fran</th>
-                    <th className="text-right py-2 px-2 font-bold bg-green-50 w-24">Revenue</th>
-                    <th className="text-right py-2 px-2 font-bold w-24">Profit</th>
+                    <th className="text-left py-2 px-2 font-bold whitespace-nowrap" style={{ width: 80 }}>Month</th>
+                    <th className="text-center py-2 px-1 font-bold text-purple-700 whitespace-nowrap" style={{ width: 72 }}>Fran</th>
+                    <th className="text-center py-2 px-1 font-bold text-blue-700 whitespace-nowrap" style={{ width: 72 }}>Tier 1</th>
+                    <th className="text-center py-2 px-1 font-bold text-green-700 whitespace-nowrap" style={{ width: 72 }}>Tier 2</th>
+                    <th className="text-center py-2 px-1 font-bold text-amber-700 whitespace-nowrap" style={{ width: 72 }}>JV</th>
+                    <th className="text-right py-2 px-2 font-bold bg-gray-50 whitespace-nowrap" style={{ width: 64 }}>Mbrs</th>
+                    <th className="text-right py-2 px-2 font-bold bg-gray-50 whitespace-nowrap" style={{ width: 64 }}>Act JV</th>
+                    <th className="text-right py-2 px-2 font-bold bg-gray-50 whitespace-nowrap" style={{ width: 64 }}>Act Fran</th>
+                    <th className="text-right py-2 px-2 font-bold bg-green-50 whitespace-nowrap" style={{ width: 80 }}>Revenue</th>
+                    <th className="text-right py-2 px-2 font-bold whitespace-nowrap" style={{ width: 80 }}>Profit</th>
                   </tr>
                   {/* Totals row — editable: type a number to auto-distribute with seasonality */}
                   {(() => {
@@ -1230,6 +1232,90 @@ export default function FranchiseDashboard() {
                   ))}
                 </ComposedChart>
               </ResponsiveContainer>
+            </div>
+
+            {/* ── EBITDA Valuation Calculator ── */}
+            <div className="bg-white rounded-xl border p-4 shadow-sm">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="font-bold text-sm text-gray-800">Valuation Calculator</h3>
+                  <p className="text-xs text-gray-500 mt-1">Based on EBITDA multiple applied to each scenario&apos;s best trailing 12-month operating profit</p>
+                </div>
+                <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-3 py-2 border border-indigo-200">
+                  <label className="text-xs font-medium text-indigo-700 whitespace-nowrap">EBITDA Multiple:</label>
+                  <input type="number" min={1} max={30} step={0.5} value={ebitdaMultiple}
+                    onChange={e => setEbitdaMultiple(parseFloat(e.target.value) || 5)}
+                    className="w-16 text-center text-sm font-bold border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
+                  <span className="text-xs text-indigo-600 font-medium">x</span>
+                </div>
+              </div>
+              <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${scenarios.length}, 1fr)` }}>
+                {scenarios.map((s, si) => {
+                  const r = results[si];
+                  // Find best trailing 12-month EBITDA (operating profit)
+                  let bestEbitda = 0;
+                  let bestYear = 0;
+                  for (const y of r.years) {
+                    if (y.profit > bestEbitda) {
+                      bestEbitda = y.profit;
+                      bestYear = y.year;
+                    }
+                  }
+                  // Also compute last full year EBITDA
+                  const lastFullYear = r.years[r.years.length - 1];
+                  const lastYearEbitda = lastFullYear?.profit ?? 0;
+                  // Conservative = last full year, Average = best year, High = best year with premium
+                  const conservativeEbitda = Math.min(lastYearEbitda, bestEbitda);
+                  const avgEbitda = bestEbitda;
+                  const highEbitda = bestEbitda * 1.2; // 20% growth premium on best year
+
+                  const conservativeVal = conservativeEbitda * (ebitdaMultiple - 1);
+                  const avgVal = avgEbitda * ebitdaMultiple;
+                  const highVal = highEbitda * (ebitdaMultiple + 1);
+
+                  return (
+                    <div key={si} className="rounded-xl border-2 p-4" style={{ borderColor: s.color + '40' }}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="w-3 h-3 rounded-full" style={{ backgroundColor: s.color }} />
+                        <span className="font-bold text-sm text-gray-800">{s.name}</span>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="text-xs text-gray-500">
+                          Best Year EBITDA: <span className="font-bold text-gray-800">{fmt(bestEbitda)}</span>
+                          <span className="text-gray-400 ml-1">({bestYear})</span>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Last Year EBITDA: <span className="font-bold text-gray-800">{fmt(lastYearEbitda)}</span>
+                          <span className="text-gray-400 ml-1">({lastFullYear?.year})</span>
+                        </div>
+                        <div className="border-t pt-3 space-y-2">
+                          <div className="flex justify-between items-center p-2 rounded-lg bg-amber-50 border border-amber-200">
+                            <div>
+                              <div className="text-[10px] font-medium text-amber-700 uppercase">Conservative</div>
+                              <div className="text-[10px] text-amber-600">{fmtK(conservativeEbitda)} × {(ebitdaMultiple - 1).toFixed(1)}x</div>
+                            </div>
+                            <div className="text-lg font-bold text-amber-700">{fmtM(conservativeVal)}</div>
+                          </div>
+                          <div className="flex justify-between items-center p-2 rounded-lg bg-blue-50 border border-blue-200">
+                            <div>
+                              <div className="text-[10px] font-medium text-blue-700 uppercase">Average</div>
+                              <div className="text-[10px] text-blue-600">{fmtK(avgEbitda)} × {ebitdaMultiple.toFixed(1)}x</div>
+                            </div>
+                            <div className="text-lg font-bold text-blue-700">{fmtM(avgVal)}</div>
+                          </div>
+                          <div className="flex justify-between items-center p-2 rounded-lg bg-green-50 border border-green-200">
+                            <div>
+                              <div className="text-[10px] font-medium text-green-700 uppercase">High</div>
+                              <div className="text-[10px] text-green-600">{fmtK(highEbitda)} × {(ebitdaMultiple + 1).toFixed(1)}x</div>
+                            </div>
+                            <div className="text-lg font-bold text-green-700">{fmtM(highVal)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Annual Comparison Table */}
