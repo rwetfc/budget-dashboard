@@ -47,6 +47,8 @@ interface Assumptions {
   materialPctOfGMV: number;
   materialMarkup: number;
   materialStartMonth: number;   // 0-indexed month when material distribution begins (0 = Jan 2026)
+  materialAdoptionRate: number;  // max % of materials purchased through HQ (0.75 = 75%)
+  materialRampMonths: number;    // months for a location to ramp to full adoption after program starts
 }
 interface AppState { assumptions: Assumptions; scenarios: Scenario[]; activeScenario: number; }
 
@@ -90,6 +92,8 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   materialPctOfGMV: 0.40,
   materialMarkup: 0.10,
   materialStartMonth: 15,   // April 2027 (0-indexed from Jan 2026)
+  materialAdoptionRate: 0.75,  // 75% of materials purchased through HQ at full adoption
+  materialRampMonths: 4,       // 4 months per location to reach full adoption
 };
 
 function buildFlatScenario(): Scenario {
@@ -232,9 +236,27 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     // Royalties on all GMV (franchises + JVs)
     const revRoyalties = systemGMV * a.royaltyRate;
     const revPlatformFees = systemGMV * a.platformFeeRate;
-    // Material sales: franchises + JVs buy materials through HQ (only after start month)
-    const materialActive = i >= a.materialStartMonth;
-    const materialVolume = materialActive ? systemGMV * a.materialPctOfGMV : 0;
+    // Material sales: per-location adoption ramp after program start
+    // Each location ramps from 0% to materialAdoptionRate over materialRampMonths
+    // monthsInProgram = how long THIS location has been in the material program
+    let materialGMV = 0;
+    if (i >= a.materialStartMonth) {
+      const programMonths = i - a.materialStartMonth + 1; // how long program has been live
+      for (const age of franchiseAges) {
+        // Location's time in material program = min of its age and program duration
+        const locMonthsInProgram = Math.min(age, programMonths);
+        const adoptionFactor = Math.min(locMonthsInProgram / Math.max(1, a.materialRampMonths), 1) * a.materialAdoptionRate;
+        const rampFactor = Math.min(age / a.gmvRampMonths, 1);
+        materialGMV += a.gmvPerFranchiseMonthly * rampFactor * adoptionFactor;
+      }
+      for (const age of jvAges) {
+        const locMonthsInProgram = Math.min(age, programMonths);
+        const adoptionFactor = Math.min(locMonthsInProgram / Math.max(1, a.materialRampMonths), 1) * a.materialAdoptionRate;
+        const rampFactor = Math.min(age / a.gmvRampMonths, 1);
+        materialGMV += a.gmvPerJVMonthly * rampFactor * adoptionFactor;
+      }
+    }
+    const materialVolume = materialGMV * a.materialPctOfGMV;
     const revMaterialMarkup = materialVolume * a.materialMarkup;
     const totalRevenue = revHeadOffice + revRoyalties + revPlatformFees + revMaterialMarkup;
 
@@ -1051,12 +1073,14 @@ export default function FranchiseDashboard() {
                 <div className="mt-3 p-3 bg-purple-100 rounded-lg text-xs text-purple-800">
                   <p className="font-bold mb-1">Franchise & JV GMV Model</p>
                   <p>Franchises ramp to {fmt(a.gmvPerFranchiseMonthly)}/mo, JVs ramp to {fmt(a.gmvPerJVMonthly)}/mo over {a.gmvRampMonths} months.</p>
-                  <p className="mt-1">HQ earns {fmtPct(a.royaltyRate)} royalties + {fmtPct(a.materialPctOfGMV * a.materialMarkup)} material markup + {fmtPct(a.platformFeeRate)} platform fees on all GMV.</p>
+                  <p className="mt-1">HQ earns {fmtPct(a.royaltyRate)} royalties + {fmtPct(a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup)} material markup ({fmtPctWhole(a.materialAdoptionRate * 100)} adoption) + {fmtPct(a.platformFeeRate)} platform fees on GMV.</p>
                 </div>
               </Section>
               <Section title="Material Sales" color="amber">
                 <InputField label="Materials % of GMV" value={a.materialPctOfGMV * 100} onChange={v => updateAssumption('materialPctOfGMV', v / 100)} suffix="%" step={1} min={0} max={100} />
                 <InputField label="HQ Markup on Materials" value={a.materialMarkup * 100} onChange={v => updateAssumption('materialMarkup', v / 100)} suffix="%" step={0.5} min={0} max={50} />
+                <InputField label="Max Adoption Rate" value={a.materialAdoptionRate * 100} onChange={v => updateAssumption('materialAdoptionRate', v / 100)} suffix="%" step={5} min={0} max={100} />
+                <InputField label="Adoption Ramp (months)" value={a.materialRampMonths} onChange={v => updateAssumption('materialRampMonths', Math.max(1, v))} step={1} min={1} max={24} />
                 <div className="mb-3">
                   <label className="text-xs font-medium text-gray-600">Distribution Starts</label>
                   <select
@@ -1070,11 +1094,20 @@ export default function FranchiseDashboard() {
                   </select>
                 </div>
                 <div className="mt-3 p-3 bg-amber-100 rounded-lg text-xs text-amber-800">
-                  <p className="font-bold mb-1">Material Sales Model</p>
-                  <p>Material distribution begins <span className="font-bold">{MONTH_LABELS(60)[a.materialStartMonth]}</span>. No material revenue before that date.</p>
-                  <p className="mt-1">Franchises & JVs purchase {fmtPctWhole(a.materialPctOfGMV * 100)} of their GMV in materials through HQ.</p>
-                  <p className="mt-1">HQ earns a {fmtPctWhole(a.materialMarkup * 100)} markup = <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup)}/franchise/month</span> at steady state.</p>
-                  <p className="mt-1">Per franchise annual material profit: <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup * 12)}</span></p>
+                  <p className="font-bold mb-1">Material Adoption Model</p>
+                  <p>Program launches <span className="font-bold">{MONTH_LABELS(60)[a.materialStartMonth]}</span>. No material revenue before that.</p>
+                  <p className="mt-1">Each location ramps from 0% → <span className="font-bold">{fmtPctWhole(a.materialAdoptionRate * 100)}</span> adoption over <span className="font-bold">{a.materialRampMonths} months</span>.</p>
+                  <p className="mt-1">At full adoption: {fmtPctWhole(a.materialAdoptionRate * 100)} of {fmtPctWhole(a.materialPctOfGMV * 100)} GMV = <span className="font-bold">{fmtPctWhole(a.materialAdoptionRate * a.materialPctOfGMV * 100)}</span> of GMV flows through HQ.</p>
+                  <p className="mt-1">HQ earns {fmtPctWhole(a.materialMarkup * 100)} markup = <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup)}/franchise/month</span> at steady state.</p>
+                  <p className="mt-1">Per franchise annual: <span className="font-bold">{fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup * 12)}</span></p>
+                  <div className="mt-2 border-t border-amber-300 pt-2">
+                    <p className="font-bold">Ramp example (per location):</p>
+                    {[1, 2, 3, 4].filter(m => m <= a.materialRampMonths).map(m => {
+                      const factor = Math.min(m / a.materialRampMonths, 1) * a.materialAdoptionRate;
+                      return <p key={m} className="ml-2">Mo {m}: {fmtPctWhole(factor * 100)} adoption → {fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * factor * a.materialMarkup)}/mo</p>;
+                    })}
+                    <p className="ml-2">Mo {a.materialRampMonths}+: {fmtPctWhole(a.materialAdoptionRate * 100)} (full) → {fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup)}/mo</p>
+                  </div>
                 </div>
               </Section>
             </div>
@@ -1096,10 +1129,10 @@ export default function FranchiseDashboard() {
                 <div className="space-y-2 text-xs">
                   <p className="text-gray-600">Each additional Tier 1 member = <span className="font-bold text-indigo-700">{fmt(a.tier1Price * 12)}/year</span></p>
                   <p className="text-gray-600">Each additional Tier 2 member = <span className="font-bold text-indigo-700">{fmt(a.tier2Price * 12)}/year</span></p>
-                  <p className="text-gray-600">Each additional JV = <span className="font-bold text-indigo-700">{fmt(a.jvPrice * 12)}/yr dues + {fmt(a.gmvPerJVMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialMarkup + a.platformFeeRate))}/yr from GMV</span></p>
-                  <p className="text-gray-600">Each franchise sale = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee)} upfront + {fmt(a.gmvPerFranchiseMonthly * 12 * a.royaltyRate)}/yr royalties + {fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialMarkup * 12)}/yr materials</span></p>
+                  <p className="text-gray-600">Each additional JV = <span className="font-bold text-indigo-700">{fmt(a.jvPrice * 12)}/yr dues + {fmt(a.gmvPerJVMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup + a.platformFeeRate))}/yr from GMV</span></p>
+                  <p className="text-gray-600">Each franchise sale = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee)} upfront + {fmt(a.gmvPerFranchiseMonthly * 12 * a.royaltyRate)}/yr royalties + {fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup * 12)}/yr materials</span></p>
                   <p className="text-gray-600">Net per franchise sale (after comm.) = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee - a.commissionPerFranchise)}</span></p>
-                  <p className="text-gray-600">Annual recurring per franchise = <span className="font-bold text-indigo-700">{fmt(a.franchiseMembershipPrice * 12 + a.gmvPerFranchiseMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialMarkup + a.platformFeeRate))}</span> (software licenses + GMV income)</p>
+                  <p className="text-gray-600">Annual recurring per franchise = <span className="font-bold text-indigo-700">{fmt(a.franchiseMembershipPrice * 12 + a.gmvPerFranchiseMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup + a.platformFeeRate))}</span> (software licenses + GMV income)</p>
                 </div>
               </Section>
               <Section title="💰 Sales Commission Calculator" color="green">
@@ -1118,7 +1151,7 @@ export default function FranchiseDashboard() {
                   const coRevJVGMVannual = calcJV * a.gmvPerJVMonthly * 12 * rampAvg12;
                   const coRevGMVannual = coRevFranchiseGMVannual + coRevJVGMVannual;
                   const coRevRoyalties = coRevGMVannual * a.royaltyRate;
-                  const coRevMaterials = coRevGMVannual * a.materialPctOfGMV * a.materialMarkup;
+                  const coRevMaterials = coRevGMVannual * a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup;
                   const coTotalYear1 = coRevFranchiseFees + coRevRecurringMo * 12 + coRevRoyalties + coRevMaterials;
                   return (
                     <div className="space-y-3">
