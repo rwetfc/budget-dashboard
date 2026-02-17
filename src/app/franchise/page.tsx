@@ -459,6 +459,18 @@ export default function FranchiseDashboard() {
     e.target.value = "";
   };
 
+  // Tab down columns in sales pipeline instead of across rows
+  const handlePipelineTab = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Tab') return;
+    const el = e.currentTarget;
+    const row = parseInt(el.dataset.row || '0');
+    const col = el.dataset.col;
+    const nextRow = e.shiftKey ? row - 1 : row + 1;
+    if (nextRow < 0 || nextRow >= sc.months.length) return;
+    const next = document.querySelector<HTMLInputElement>(`input[data-row="${nextRow}"][data-col="${col}"]`);
+    if (next) { e.preventDefault(); next.focus(); next.select(); }
+  };
+
   // Calculated data
   const results = useMemo(() => scenarios.map(s => calcScenario(a, s)), [a, scenarios]);
   const result = results[activeScenario];
@@ -895,10 +907,10 @@ export default function FranchiseDashboard() {
                     return (
                       <tr key={i} className={`border-b hover:bg-indigo-50/30 ${isYearStart ? 'border-t-2 border-gray-400' : ''}`}>
                         <td className="py-1 px-2 font-medium text-gray-600">{monthLabels[i]}</td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={m.franchises} onChange={e => updateMonthSales(i, 'franchises', parseInt(e.target.value) || 0)} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-purple-400 focus:border-purple-400 outline-none" /></td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={m.tier1} onChange={e => updateMonthSales(i, 'tier1', parseInt(e.target.value) || 0)} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none" /></td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={m.tier2} onChange={e => updateMonthSales(i, 'tier2', parseInt(e.target.value) || 0)} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-green-400 focus:border-green-400 outline-none" /></td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={m.jv} onChange={e => updateMonthSales(i, 'jv', parseInt(e.target.value) || 0)} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none" /></td>
+                        <td className="py-1 px-1"><input type="number" min={0} value={m.franchises} onChange={e => updateMonthSales(i, 'franchises', parseInt(e.target.value) || 0)} data-row={i} data-col="franchises" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-purple-400 focus:border-purple-400 outline-none" /></td>
+                        <td className="py-1 px-1"><input type="number" min={0} value={m.tier1} onChange={e => updateMonthSales(i, 'tier1', parseInt(e.target.value) || 0)} data-row={i} data-col="tier1" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none" /></td>
+                        <td className="py-1 px-1"><input type="number" min={0} value={m.tier2} onChange={e => updateMonthSales(i, 'tier2', parseInt(e.target.value) || 0)} data-row={i} data-col="tier2" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-green-400 focus:border-green-400 outline-none" /></td>
+                        <td className="py-1 px-1"><input type="number" min={0} value={m.jv} onChange={e => updateMonthSales(i, 'jv', parseInt(e.target.value) || 0)} data-row={i} data-col="jv" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none" /></td>
                         <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r ? r.activeTier1 + r.activeTier2 : ''}</td>
                         <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r?.activeJV}</td>
                         <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r?.activeFranchises}</td>
