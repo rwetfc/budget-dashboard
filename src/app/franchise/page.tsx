@@ -213,7 +213,7 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     const revHeadOffice = revFranchiseFees + revMembership;
     // Royalties on all GMV (franchises + JVs)
     const revRoyalties = systemGMV * a.royaltyRate;
-    const revPlatformFees = (revMembership + systemGMV) * a.platformFeeRate;
+    const revPlatformFees = systemGMV * a.platformFeeRate;
     // Material sales: franchises + JVs buy materials through HQ
     const materialVolume = systemGMV * a.materialPctOfGMV;
     const revMaterialMarkup = materialVolume * a.materialMarkup;
