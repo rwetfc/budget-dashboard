@@ -83,10 +83,10 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   gmvPerFranchiseMonthly: 83333,
   gmvPerJVMonthly: 83333,
   gmvRampMonths: 4,
-  churnRateTier1: 0.02,
-  churnRateTier2: 0.01,
-  churnRateJV: 0.005,
-  churnRateFranchise: 0.005,
+  churnRateTier1: 0.20,       // 20% annual → converted to monthly in calc engine
+  churnRateTier2: 0.10,       // 10% annual
+  churnRateJV: 0.05,          // 5% annual
+  churnRateFranchise: 0.05,   // 5% annual
   materialPctOfGMV: 0.40,
   materialMarkup: 0.10,
   materialStartMonth: 15,   // April 2027 (0-indexed from Jan 2026)
@@ -136,6 +136,16 @@ function fmtM(n: number) { return n >= 0 ? "$" + (n / 1000000).toFixed(2) + "M" 
 function fmtPct(n: number) { return (n * 100).toFixed(1) + "%"; }
 function fmtPctWhole(n: number) { return n.toFixed(1) + "%"; }
 
+// ─── Churn Conversion ────────────────────────────────────────────────────────
+// Convert annual churn rate to equivalent monthly rate with proper compounding:
+// monthly = 1 − (1 − annual)^(1/12)
+// e.g. 5% annual → 0.427% monthly, NOT 0.417% (simple division)
+function annualToMonthlyChurn(annual: number): number {
+  if (annual <= 0) return 0;
+  if (annual >= 1) return 1;
+  return 1 - Math.pow(1 - annual, 1 / 12);
+}
+
 // ─── Overhead Scaling ───────────────────────────────────────────────────────
 // Each $25K salary unit supports 5 franchises/JVs, 15 T1, or 12 T2.
 // We compute "load units" needed, then apply a power curve (exponent < 1)
@@ -170,11 +180,17 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     const newT2 = m.tier2;
     const newJV = m.jv;
 
-    // Churn (applied before adding new) — floor so partial churn doesn't round up to a full loss
-    const churnedT1 = Math.floor(activeTier1 * a.churnRateTier1);
-    const churnedT2 = Math.floor(activeTier2 * a.churnRateTier2);
-    const churnedJV = Math.floor(activeJV * a.churnRateJV);
-    const churnedF = Math.floor(activeFranchises * a.churnRateFranchise);
+    // Churn: rates are stored as ANNUAL, converted to monthly via compounding formula
+    // monthly = 1 − (1 − annual)^(1/12) — ensures 5% annual ≠ 5%/mo (which would be 46%/yr!)
+    const mChurnT1 = annualToMonthlyChurn(a.churnRateTier1);
+    const mChurnT2 = annualToMonthlyChurn(a.churnRateTier2);
+    const mChurnJV = annualToMonthlyChurn(a.churnRateJV);
+    const mChurnF  = annualToMonthlyChurn(a.churnRateFranchise);
+
+    const churnedT1 = Math.floor(activeTier1 * mChurnT1);
+    const churnedT2 = Math.floor(activeTier2 * mChurnT2);
+    const churnedJV = Math.floor(activeJV * mChurnJV);
+    const churnedF = Math.floor(activeFranchises * mChurnF);
 
     activeTier1 = Math.max(0, activeTier1 - churnedT1 + newT1);
     activeTier2 = Math.max(0, activeTier2 - churnedT2 + newT2);
@@ -436,8 +452,19 @@ export default function FranchiseDashboard() {
   };
 
   // Backfill any missing assumption fields with defaults so old JSON files don't produce NaN
+  // Also migrate old monthly churn rates → annual (old files had values like 0.005-0.02)
   const migrateState = (data: any): AppState => {
     const merged: Assumptions = { ...DEFAULT_ASSUMPTIONS, ...data.assumptions };
+    // Detect old monthly churn rates (all < 0.05 means they were monthly, not annual)
+    const oldChurns = [data.assumptions?.churnRateTier1, data.assumptions?.churnRateTier2,
+      data.assumptions?.churnRateJV, data.assumptions?.churnRateFranchise].filter(Boolean);
+    if (oldChurns.length > 0 && oldChurns.every((c: number) => c < 0.04)) {
+      // Convert monthly → annual: annual = 1 - (1 - monthly)^12
+      if (data.assumptions?.churnRateTier1) merged.churnRateTier1 = 1 - Math.pow(1 - data.assumptions.churnRateTier1, 12);
+      if (data.assumptions?.churnRateTier2) merged.churnRateTier2 = 1 - Math.pow(1 - data.assumptions.churnRateTier2, 12);
+      if (data.assumptions?.churnRateJV) merged.churnRateJV = 1 - Math.pow(1 - data.assumptions.churnRateJV, 12);
+      if (data.assumptions?.churnRateFranchise) merged.churnRateFranchise = 1 - Math.pow(1 - data.assumptions.churnRateFranchise, 12);
+    }
     return { ...data, assumptions: merged };
   };
 
@@ -1052,15 +1079,17 @@ export default function FranchiseDashboard() {
               </Section>
             </div>
             <div className="col-span-4 space-y-4">
-              <Section title="Churn Rates (Monthly)" color="red">
-                <InputField label="Tier 1 Churn" value={a.churnRateTier1 * 100} onChange={v => updateAssumption('churnRateTier1', v / 100)} suffix="%" step={0.5} />
-                <InputField label="Tier 2 Churn" value={a.churnRateTier2 * 100} onChange={v => updateAssumption('churnRateTier2', v / 100)} suffix="%" step={0.5} />
-                <InputField label="JV Churn" value={a.churnRateJV * 100} onChange={v => updateAssumption('churnRateJV', v / 100)} suffix="%" step={0.25} />
-                <InputField label="Franchise Churn" value={a.churnRateFranchise * 100} onChange={v => updateAssumption('churnRateFranchise', v / 100)} suffix="%" step={0.25} />
+              <Section title="Churn Rates (Annual)" color="red">
+                <InputField label="Tier 1 Annual Churn" value={a.churnRateTier1 * 100} onChange={v => updateAssumption('churnRateTier1', v / 100)} suffix="%" step={1} />
+                <InputField label="Tier 2 Annual Churn" value={a.churnRateTier2 * 100} onChange={v => updateAssumption('churnRateTier2', v / 100)} suffix="%" step={1} />
+                <InputField label="JV Annual Churn" value={a.churnRateJV * 100} onChange={v => updateAssumption('churnRateJV', v / 100)} suffix="%" step={1} />
+                <InputField label="Franchise Annual Churn" value={a.churnRateFranchise * 100} onChange={v => updateAssumption('churnRateFranchise', v / 100)} suffix="%" step={1} />
                 <div className="mt-3 p-3 bg-red-100 rounded-lg text-xs text-red-800">
-                  <p className="font-bold mb-1">Churn Impact</p>
-                  <p>At {(a.churnRateTier1 * 100).toFixed(1)}% monthly T1 churn, annual retention is ~{((1 - a.churnRateTier1) ** 12 * 100).toFixed(0)}%.</p>
-                  <p>At {(a.churnRateFranchise * 100).toFixed(1)}% monthly franchise churn, you lose ~{(a.churnRateFranchise * 12 * 100).toFixed(0)}% per year.</p>
+                  <p className="font-bold mb-1">Churn Conversion</p>
+                  <p>Rates entered as <span className="font-bold">annual</span>, converted to monthly via compounding:</p>
+                  <p className="mt-1 font-mono text-[10px] bg-red-50 rounded p-1">monthly = 1 − (1 − annual)^(1/12)</p>
+                  <p className="mt-1">T1: {(a.churnRateTier1 * 100).toFixed(0)}%/yr → {(annualToMonthlyChurn(a.churnRateTier1) * 100).toFixed(2)}%/mo → {((1 - a.churnRateTier1) * 100).toFixed(0)}% retention</p>
+                  <p>Franchise: {(a.churnRateFranchise * 100).toFixed(0)}%/yr → {(annualToMonthlyChurn(a.churnRateFranchise) * 100).toFixed(2)}%/mo → {((1 - a.churnRateFranchise) * 100).toFixed(0)}% retention</p>
                 </div>
               </Section>
               <Section title="Quick Sensitivity" color="indigo">
