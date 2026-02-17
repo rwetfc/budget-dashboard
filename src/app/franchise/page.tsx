@@ -323,6 +323,54 @@ function calcScenario(a: Assumptions, sc: Scenario) {
   return { rows, years, totalRevenue, totalProfit, lastRow, breakEvenMonth };
 }
 
+// Project EBITDA at a future sale year beyond the model period
+// Assumes no new sales after model ends — just churn + fully ramped recurring revenue
+function projectSaleYearEbitda(a: Assumptions, lastRow: any, modelEndYear: number, saleYear: number): number {
+  if (saleYear <= modelEndYear) {
+    // Sale year within model — return that year's data (handled by caller)
+    return 0;
+  }
+  // Start from the last month's active counts
+  let { activeFranchises, activeJV, activeTier1, activeTier2 } = lastRow;
+  const mChurnF = annualToMonthlyChurn(a.churnRateFranchise);
+  const mChurnJV = annualToMonthlyChurn(a.churnRateJV);
+  const mChurnT1 = annualToMonthlyChurn(a.churnRateTier1);
+  const mChurnT2 = annualToMonthlyChurn(a.churnRateTier2);
+
+  // Fast-forward month by month from end of model to Dec of saleYear
+  const extraMonths = (saleYear - modelEndYear) * 12;
+  const monthlyProfits: number[] = [];
+  for (let m = 0; m < extraMonths; m++) {
+    // Churn (no new sales)
+    activeFranchises = Math.max(0, activeFranchises - Math.floor(activeFranchises * mChurnF));
+    activeJV = Math.max(0, activeJV - Math.floor(activeJV * mChurnJV));
+    activeTier1 = Math.max(0, activeTier1 - Math.floor(activeTier1 * mChurnT1));
+    activeTier2 = Math.max(0, activeTier2 - Math.floor(activeTier2 * mChurnT2));
+
+    // All locations fully ramped on GMV and material adoption by sale date
+    const franchiseGMV = activeFranchises * a.gmvPerFranchiseMonthly;
+    const jvGMV = activeJV * a.gmvPerJVMonthly;
+    const systemGMV = franchiseGMV + jvGMV;
+
+    // Revenue (no franchise fees — no new sales)
+    const revMembership = activeTier1 * a.tier1Price + activeTier2 * a.tier2Price
+      + activeJV * a.jvPrice + activeFranchises * a.franchiseMembershipPrice;
+    const revRoyalties = systemGMV * a.royaltyRate;
+    const revPlatformFees = systemGMV * a.platformFeeRate;
+    const revMaterialMarkup = systemGMV * a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup;
+    const totalRevenue = revMembership + revRoyalties + revPlatformFees + revMaterialMarkup;
+
+    // Costs (no commissions — no new sales)
+    const costOverhead = calcOverhead(a, activeFranchises, activeJV, activeTier1, activeTier2);
+    const operatingProfit = totalRevenue - costOverhead;
+    monthlyProfits.push(operatingProfit);
+  }
+
+  // Return trailing 12-month sum at sale date
+  const trailing12 = monthlyProfits.slice(-12);
+  return trailing12.reduce((s, p) => s + p, 0);
+}
+
 // ─── Components ─────────────────────────────────────────────────────────────
 function KPI({ label, value, subtext, positive, negative }: { label: string; value: string; subtext?: string; positive?: boolean; negative?: boolean }) {
   return (
@@ -394,6 +442,7 @@ export default function FranchiseDashboard() {
   const [calcJV, setCalcJV] = useState(2);
   // EBITDA Valuation calculator state
   const [ebitdaMultiple, setEbitdaMultiple] = useState(5);
+  const [saleYear, setSaleYear] = useState(2030);
 
   const { assumptions: a, scenarios, activeScenario } = state;
   const sc = scenarios[activeScenario];
@@ -1302,83 +1351,112 @@ export default function FranchiseDashboard() {
 
             {/* ── EBITDA Valuation Calculator ── */}
             <div className="bg-white rounded-xl border p-4 shadow-sm overflow-hidden">
-              <div className="flex justify-between items-start gap-3 mb-4">
-                <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap justify-between items-start gap-3 mb-4">
+                <div className="min-w-0">
                   <h3 className="font-bold text-sm text-gray-800">Valuation Calculator</h3>
-                  <p className="text-xs text-gray-500 mt-1 truncate">EBITDA multiple × best trailing 12-month operating profit</p>
+                  <p className="text-xs text-gray-500 mt-1">Trailing 12-month EBITDA at sale date × multiple</p>
                 </div>
-                <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-3 py-2 border border-indigo-200 flex-shrink-0">
-                  <label className="text-xs font-medium text-indigo-700 whitespace-nowrap">EBITDA Multiple:</label>
-                  <input type="number" min={1} max={30} step={0.5} value={ebitdaMultiple}
-                    onChange={e => setEbitdaMultiple(parseFloat(e.target.value) || 5)}
-                    className="w-16 text-center text-sm font-bold border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
-                  <span className="text-xs text-indigo-600 font-medium">x</span>
+                <div className="flex flex-wrap items-center gap-3 flex-shrink-0">
+                  <div className="flex items-center gap-2 bg-purple-50 rounded-lg px-3 py-2 border border-purple-200">
+                    <label className="text-xs font-medium text-purple-700 whitespace-nowrap">Sale Year:</label>
+                    <select value={saleYear} onChange={e => setSaleYear(parseInt(e.target.value))}
+                      className="text-sm font-bold border border-purple-300 rounded px-2 py-1 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none bg-white">
+                      {Array.from({ length: 11 }, (_, i) => 2026 + i).map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-3 py-2 border border-indigo-200">
+                    <label className="text-xs font-medium text-indigo-700 whitespace-nowrap">EBITDA Multiple:</label>
+                    <input type="number" min={1} max={30} step={0.5} value={ebitdaMultiple}
+                      onChange={e => setEbitdaMultiple(parseFloat(e.target.value) || 5)}
+                      className="w-16 text-center text-sm font-bold border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
+                    <span className="text-xs text-indigo-600 font-medium">x</span>
+                  </div>
                 </div>
               </div>
-              <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${scenarios.length}, 1fr)` }}>
+              <div className="overflow-x-auto">
+                <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${scenarios.length}, minmax(160px, 1fr))` }}>
                 {scenarios.map((s, si) => {
                   const r = results[si];
-                  let bestEbitda = 0;
-                  let bestYear = 0;
-                  for (const y of r.years) {
-                    if (y.profit > bestEbitda) {
-                      bestEbitda = y.profit;
-                      bestYear = y.year;
+                  const modelEndYear = r.years[r.years.length - 1]?.year ?? 2030;
+                  const isBeyondModel = saleYear > modelEndYear;
+
+                  // EBITDA at sale date
+                  let saleEbitda: number;
+                  let ebitdaSource: string;
+                  if (isBeyondModel) {
+                    saleEbitda = projectSaleYearEbitda(a, r.lastRow, modelEndYear, saleYear);
+                    ebitdaSource = `Projected ${saleYear} (no new sales, churn continues)`;
+                  } else {
+                    const yearData = r.years.find(y => y.year === saleYear);
+                    saleEbitda = yearData?.profit ?? 0;
+                    ebitdaSource = `Actual ${saleYear} model data`;
+                  }
+
+                  const lastModelYear = r.years[r.years.length - 1];
+                  const lastModelEbitda = lastModelYear?.profit ?? 0;
+
+                  const conservativeVal = saleEbitda * (ebitdaMultiple - 1);
+                  const avgVal = saleEbitda * ebitdaMultiple;
+                  const highVal = saleEbitda * (ebitdaMultiple + 1);
+
+                  let projFranchises = r.lastRow.activeFranchises;
+                  let projJV = r.lastRow.activeJV;
+                  if (isBeyondModel) {
+                    const mChurnF = annualToMonthlyChurn(a.churnRateFranchise);
+                    const mChurnJV = annualToMonthlyChurn(a.churnRateJV);
+                    for (let m = 0; m < (saleYear - modelEndYear) * 12; m++) {
+                      projFranchises = Math.max(0, projFranchises - Math.floor(projFranchises * mChurnF));
+                      projJV = Math.max(0, projJV - Math.floor(projJV * mChurnJV));
                     }
                   }
-                  const lastFullYear = r.years[r.years.length - 1];
-                  const lastYearEbitda = lastFullYear?.profit ?? 0;
-                  const conservativeEbitda = Math.min(lastYearEbitda, bestEbitda);
-                  const avgEbitda = bestEbitda;
-                  const highEbitda = bestEbitda * 1.2;
-
-                  const conservativeVal = conservativeEbitda * (ebitdaMultiple - 1);
-                  const avgVal = avgEbitda * ebitdaMultiple;
-                  const highVal = highEbitda * (ebitdaMultiple + 1);
 
                   return (
-                    <div key={si} className="rounded-xl border-2 p-3 overflow-hidden" style={{ borderColor: s.color + '40' }}>
-                      <div className="flex items-center gap-2 mb-3 min-w-0">
-                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
-                        <span className="font-bold text-sm text-gray-800 truncate">{s.name}</span>
+                    <div key={si} className="rounded-lg border-2 p-2 overflow-hidden" style={{ borderColor: s.color + '40' }}>
+                      <div className="flex items-center gap-1.5 mb-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                        <span className="font-bold text-xs text-gray-800 truncate">{s.name}</span>
                       </div>
-                      <div className="space-y-2">
-                        <div className="text-xs text-gray-500 truncate">
-                          Best EBITDA: <span className="font-bold text-gray-800">{fmtK(bestEbitda)}</span>
-                          <span className="text-gray-400 ml-1">({bestYear})</span>
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] text-gray-500">
+                          <div className="font-medium text-gray-700">{saleYear} EBITDA: <span className="font-bold text-gray-800">{fmtK(saleEbitda)}</span></div>
+                          {isBeyondModel && <span className="text-[10px] text-purple-600">(projected)</span>}
                         </div>
-                        <div className="text-xs text-gray-500 truncate">
-                          Last Yr: <span className="font-bold text-gray-800">{fmtK(lastYearEbitda)}</span>
-                          <span className="text-gray-400 ml-1">({lastFullYear?.year})</span>
-                        </div>
-                        <div className="border-t pt-2 space-y-1.5">
-                          <div className="flex justify-between items-center p-2 rounded-lg bg-amber-50 border border-amber-200 gap-2">
-                            <div className="min-w-0">
-                              <div className="text-[10px] font-medium text-amber-700 uppercase">Conservative</div>
-                              <div className="text-[10px] text-amber-600 truncate">{fmtK(conservativeEbitda)} × {(ebitdaMultiple - 1).toFixed(1)}x</div>
-                            </div>
-                            <div className="text-base font-bold text-amber-700 whitespace-nowrap flex-shrink-0">{fmtM(conservativeVal)}</div>
+                        {isBeyondModel && (
+                          <div className="text-[9px] text-gray-400 leading-tight">
+                            <div>vs {modelEndYear}: {fmtK(lastModelEbitda)} {saleEbitda > lastModelEbitda ? '📈' : saleEbitda < lastModelEbitda ? '📉' : '→'} {saleEbitda !== lastModelEbitda ? ((saleEbitda / lastModelEbitda - 1) * 100).toFixed(0) + '%' : 'flat'}</div>
+                            <div>{projFranchises}F · {projJV}JV at sale</div>
                           </div>
-                          <div className="flex justify-between items-center p-2 rounded-lg bg-blue-50 border border-blue-200 gap-2">
-                            <div className="min-w-0">
-                              <div className="text-[10px] font-medium text-blue-700 uppercase">Average</div>
-                              <div className="text-[10px] text-blue-600 truncate">{fmtK(avgEbitda)} × {ebitdaMultiple.toFixed(1)}x</div>
-                            </div>
-                            <div className="text-base font-bold text-blue-700 whitespace-nowrap flex-shrink-0">{fmtM(avgVal)}</div>
+                        )}
+                        <div className="border-t pt-1.5 space-y-1">
+                          <div className="rounded-md bg-amber-50 border border-amber-200 px-2 py-1.5">
+                            <div className="text-[9px] font-medium text-amber-700 uppercase tracking-wide">Conservative</div>
+                            <div className="text-sm font-bold text-amber-700">{fmtM(conservativeVal)}</div>
+                            <div className="text-[9px] text-amber-500">{fmtK(saleEbitda)} × {(ebitdaMultiple - 1).toFixed(1)}x</div>
                           </div>
-                          <div className="flex justify-between items-center p-2 rounded-lg bg-green-50 border border-green-200 gap-2">
-                            <div className="min-w-0">
-                              <div className="text-[10px] font-medium text-green-700 uppercase">High</div>
-                              <div className="text-[10px] text-green-600 truncate">{fmtK(highEbitda)} × {(ebitdaMultiple + 1).toFixed(1)}x</div>
-                            </div>
-                            <div className="text-base font-bold text-green-700 whitespace-nowrap flex-shrink-0">{fmtM(highVal)}</div>
+                          <div className="rounded-md bg-blue-50 border border-blue-200 px-2 py-1.5">
+                            <div className="text-[9px] font-medium text-blue-700 uppercase tracking-wide">Average</div>
+                            <div className="text-sm font-bold text-blue-700">{fmtM(avgVal)}</div>
+                            <div className="text-[9px] text-blue-500">{fmtK(saleEbitda)} × {ebitdaMultiple.toFixed(1)}x</div>
+                          </div>
+                          <div className="rounded-md bg-green-50 border border-green-200 px-2 py-1.5">
+                            <div className="text-[9px] font-medium text-green-700 uppercase tracking-wide">High</div>
+                            <div className="text-sm font-bold text-green-700">{fmtM(highVal)}</div>
+                            <div className="text-[9px] text-green-500">{fmtK(saleEbitda)} × {(ebitdaMultiple + 1).toFixed(1)}x</div>
                           </div>
                         </div>
                       </div>
                     </div>
                   );
                 })}
+                </div>
               </div>
+              {saleYear > (results[0]?.years[results[0].years.length - 1]?.year ?? 2030) && (
+                <p className="text-[10px] text-gray-400 mt-3 italic">
+                  Projection assumes no new sales after model period. Locations fully ramped. Churn continues.
+                </p>
+              )}
             </div>
 
             {/* Annual Comparison Table */}
