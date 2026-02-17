@@ -49,6 +49,8 @@ interface Assumptions {
   materialStartMonth: number;   // 0-indexed month when material distribution begins (0 = Jan 2026)
   materialAdoptionRate: number;  // max % of materials purchased through HQ (0.75 = 75%)
   materialRampMonths: number;    // months for a location to ramp to full adoption after program starts
+  seasonalityEnabled: boolean;   // apply seasonal GMV curve (fencing peaks spring/summer)
+  effectiveTaxRate: number;      // combined federal+state effective tax rate (0.25 = 25%)
 }
 interface AppState { assumptions: Assumptions; scenarios: Scenario[]; activeScenario: number; }
 
@@ -94,6 +96,8 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   materialStartMonth: 15,   // April 2027 (0-indexed from Jan 2026)
   materialAdoptionRate: 0.75,  // 75% of materials purchased through HQ at full adoption
   materialRampMonths: 4,       // 4 months per location to reach full adoption
+  seasonalityEnabled: true,    // fencing seasonal curve on by default
+  effectiveTaxRate: 0.25,      // 25% combined federal + state
 };
 
 function buildFlatScenario(): Scenario {
@@ -150,6 +154,26 @@ function annualToMonthlyChurn(annual: number): number {
   return 1 - Math.pow(1 - annual, 1 / 12);
 }
 
+// ─── Seeded PRNG (mulberry32) ────────────────────────────────────────────────
+// Deterministic random: same seed always produces same sequence.
+// Prevents dashboard jitter on re-renders while giving random churn selection.
+function mulberry32(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ─── Seasonal GMV Weights ────────────────────────────────────────────────────
+// Fencing industry: peaks May-Jul, troughs Dec-Feb. Normalized to average 1.0.
+const SEASONAL_RAW = [0.50, 0.55, 0.85, 1.15, 1.40, 1.50, 1.45, 1.30, 1.10, 0.80, 0.55, 0.40];
+const SEASONAL_SUM = SEASONAL_RAW.reduce((s, v) => s + v, 0);
+const SEASONAL_WEIGHTS = SEASONAL_RAW.map(w => (w * 12) / SEASONAL_SUM);
+// SEASONAL_WEIGHTS averages exactly 1.0, so annual GMV totals are preserved.
+
 // ─── Overhead Scaling ───────────────────────────────────────────────────────
 // Each $25K salary unit supports 5 franchises/JVs, 15 T1, or 12 T2.
 // We compute "load units" needed, then apply a power curve (exponent < 1)
@@ -167,7 +191,7 @@ function calcOverhead(a: Assumptions, franchises: number, jv: number, t1: number
 }
 
 // ─── Calculation Engine ─────────────────────────────────────────────────────
-function calcScenario(a: Assumptions, sc: Scenario) {
+function calcScenario(a: Assumptions, sc: Scenario, scenarioIdx: number) {
   const labels = MONTH_LABELS(sc.months.length);
   let activeTier1 = sc.startingTier1;
   let activeTier2 = sc.startingTier2;
@@ -177,6 +201,9 @@ function calcScenario(a: Assumptions, sc: Scenario) {
   const franchiseAges: number[] = Array(sc.startingFranchises).fill(a.gmvRampMonths + 1);
   const jvAges: number[] = Array(sc.startingJV).fill(a.gmvRampMonths + 1);
 
+  // Seeded PRNG for deterministic random churn (seed = scenario index)
+  const rng = mulberry32(scenarioIdx * 7919 + 42);
+
   const rows = sc.months.map((m, i) => {
     // New sales
     const newF = m.franchises;
@@ -185,7 +212,6 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     const newJV = m.jv;
 
     // Churn: rates are stored as ANNUAL, converted to monthly via compounding formula
-    // monthly = 1 − (1 − annual)^(1/12) — ensures 5% annual ≠ 5%/mo (which would be 46%/yr!)
     const mChurnT1 = annualToMonthlyChurn(a.churnRateTier1);
     const mChurnT2 = annualToMonthlyChurn(a.churnRateTier2);
     const mChurnJV = annualToMonthlyChurn(a.churnRateJV);
@@ -204,24 +230,34 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     // Age existing franchises and add new
     for (let f = 0; f < franchiseAges.length; f++) franchiseAges[f]++;
     for (let f = 0; f < newF; f++) franchiseAges.push(1);
-    for (let f = 0; f < churnedF && franchiseAges.length > 0; f++) franchiseAges.shift();
+    // Random churn removal (seeded PRNG — deterministic for same inputs)
+    for (let f = 0; f < churnedF && franchiseAges.length > 0; f++) {
+      const idx = Math.floor(rng() * franchiseAges.length);
+      franchiseAges.splice(idx, 1);
+    }
 
     // Age existing JVs and add new
     for (let j = 0; j < jvAges.length; j++) jvAges[j]++;
     for (let j = 0; j < newJV; j++) jvAges.push(1);
-    for (let j = 0; j < churnedJV && jvAges.length > 0; j++) jvAges.shift();
+    for (let j = 0; j < churnedJV && jvAges.length > 0; j++) {
+      const idx = Math.floor(rng() * jvAges.length);
+      jvAges.splice(idx, 1);
+    }
 
-    // GMV calculation with ramp — Franchises
+    // Seasonal multiplier (preserves annual totals — weights average 1.0)
+    const seasonFactor = a.seasonalityEnabled ? SEASONAL_WEIGHTS[i % 12] : 1.0;
+
+    // GMV calculation with ramp + seasonality — Franchises
     let franchiseGMV = 0;
     for (const age of franchiseAges) {
       const rampFactor = Math.min(age / a.gmvRampMonths, 1);
-      franchiseGMV += a.gmvPerFranchiseMonthly * rampFactor;
+      franchiseGMV += a.gmvPerFranchiseMonthly * rampFactor * seasonFactor;
     }
-    // GMV calculation with ramp — JVs
+    // GMV calculation with ramp + seasonality — JVs
     let jvGMV = 0;
     for (const age of jvAges) {
       const rampFactor = Math.min(age / a.gmvRampMonths, 1);
-      jvGMV += a.gmvPerJVMonthly * rampFactor;
+      jvGMV += a.gmvPerJVMonthly * rampFactor * seasonFactor;
     }
     const systemGMV = franchiseGMV + jvGMV;
 
@@ -236,24 +272,21 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     // Royalties on all GMV (franchises + JVs)
     const revRoyalties = systemGMV * a.royaltyRate;
     const revPlatformFees = systemGMV * a.platformFeeRate;
-    // Material sales: per-location adoption ramp after program start
-    // Each location ramps from 0% to materialAdoptionRate over materialRampMonths
-    // monthsInProgram = how long THIS location has been in the material program
+    // Material sales: per-location adoption ramp after program start with seasonality
     let materialGMV = 0;
     if (i >= a.materialStartMonth) {
-      const programMonths = i - a.materialStartMonth + 1; // how long program has been live
+      const programMonths = i - a.materialStartMonth + 1;
       for (const age of franchiseAges) {
-        // Location's time in material program = min of its age and program duration
         const locMonthsInProgram = Math.min(age, programMonths);
         const adoptionFactor = Math.min(locMonthsInProgram / Math.max(1, a.materialRampMonths), 1) * a.materialAdoptionRate;
         const rampFactor = Math.min(age / a.gmvRampMonths, 1);
-        materialGMV += a.gmvPerFranchiseMonthly * rampFactor * adoptionFactor;
+        materialGMV += a.gmvPerFranchiseMonthly * rampFactor * adoptionFactor * seasonFactor;
       }
       for (const age of jvAges) {
         const locMonthsInProgram = Math.min(age, programMonths);
         const adoptionFactor = Math.min(locMonthsInProgram / Math.max(1, a.materialRampMonths), 1) * a.materialAdoptionRate;
         const rampFactor = Math.min(age / a.gmvRampMonths, 1);
-        materialGMV += a.gmvPerJVMonthly * rampFactor * adoptionFactor;
+        materialGMV += a.gmvPerJVMonthly * rampFactor * adoptionFactor * seasonFactor;
       }
     }
     const materialVolume = materialGMV * a.materialPctOfGMV;
@@ -270,6 +303,9 @@ function calcScenario(a: Assumptions, sc: Scenario) {
     const totalCost = costCommissions + costOverhead;
 
     const operatingProfit = totalRevenue - totalCost;
+    // Tax: only on positive income (no tax benefit on losses in this simple model)
+    const taxExpense = Math.max(0, operatingProfit * a.effectiveTaxRate);
+    const netIncome = operatingProfit - taxExpense;
 
     return {
       month: labels[i],
@@ -281,17 +317,18 @@ function calcScenario(a: Assumptions, sc: Scenario) {
       revFranchiseFees, revTier1, revTier2, revJV, revFranchiseDues, revMembership, revHeadOffice,
       revRoyalties, revPlatformFees, materialVolume, revMaterialMarkup, totalRevenue,
       costCommissions, costOverhead, totalCost,
-      operatingProfit,
+      operatingProfit, taxExpense, netIncome,
       cumProfit: 0,
       cumRevenue: 0,
+      cumNetIncome: 0,
     };
   });
 
-  let cum = 0, cumR = 0;
-  rows.forEach(r => { cum += r.operatingProfit; cumR += r.totalRevenue; r.cumProfit = cum; r.cumRevenue = cumR; });
+  let cum = 0, cumR = 0, cumNI = 0;
+  rows.forEach(r => { cum += r.operatingProfit; cumR += r.totalRevenue; cumNI += r.netIncome; r.cumProfit = cum; r.cumRevenue = cumR; r.cumNetIncome = cumNI; });
 
   // Yearly aggregation
-  const years: { year: number; revenue: number; cost: number; profit: number; franchiseFees: number; membership: number; royalties: number; platformFees: number; materialMarkup: number; commissions: number; overhead: number; endMembers: number; endJV: number; endFranchises: number; gmv: number; }[] = [];
+  const years: { year: number; revenue: number; cost: number; profit: number; tax: number; netIncome: number; franchiseFees: number; membership: number; royalties: number; platformFees: number; materialMarkup: number; commissions: number; overhead: number; endMembers: number; endJV: number; endFranchises: number; gmv: number; }[] = [];
   for (let y = 0; y < Math.ceil(rows.length / 12); y++) {
     const slice = rows.slice(y * 12, (y + 1) * 12);
     if (slice.length === 0) continue;
@@ -301,6 +338,8 @@ function calcScenario(a: Assumptions, sc: Scenario) {
       revenue: slice.reduce((s, r) => s + r.totalRevenue, 0),
       cost: slice.reduce((s, r) => s + r.totalCost, 0),
       profit: slice.reduce((s, r) => s + r.operatingProfit, 0),
+      tax: slice.reduce((s, r) => s + r.taxExpense, 0),
+      netIncome: slice.reduce((s, r) => s + r.netIncome, 0),
       franchiseFees: slice.reduce((s, r) => s + r.revFranchiseFees, 0),
       membership: slice.reduce((s, r) => s + r.revMembership, 0),
       royalties: slice.reduce((s, r) => s + r.revRoyalties, 0),
@@ -327,10 +366,8 @@ function calcScenario(a: Assumptions, sc: Scenario) {
 // Assumes no new sales after model ends — just churn + fully ramped recurring revenue
 function projectSaleYearEbitda(a: Assumptions, lastRow: any, modelEndYear: number, saleYear: number): number {
   if (saleYear <= modelEndYear) {
-    // Sale year within model — return that year's data (handled by caller)
     return 0;
   }
-  // Start from the last month's active counts
   let { activeFranchises, activeJV, activeTier1, activeTier2 } = lastRow;
   const mChurnF = annualToMonthlyChurn(a.churnRateFranchise);
   const mChurnJV = annualToMonthlyChurn(a.churnRateJV);
@@ -338,6 +375,7 @@ function projectSaleYearEbitda(a: Assumptions, lastRow: any, modelEndYear: numbe
   const mChurnT2 = annualToMonthlyChurn(a.churnRateTier2);
 
   // Fast-forward month by month from end of model to Dec of saleYear
+  // Model ends at Dec of modelEndYear, so first projected month = Jan of modelEndYear+1
   const extraMonths = (saleYear - modelEndYear) * 12;
   const monthlyProfits: number[] = [];
   for (let m = 0; m < extraMonths; m++) {
@@ -347,9 +385,12 @@ function projectSaleYearEbitda(a: Assumptions, lastRow: any, modelEndYear: numbe
     activeTier1 = Math.max(0, activeTier1 - Math.floor(activeTier1 * mChurnT1));
     activeTier2 = Math.max(0, activeTier2 - Math.floor(activeTier2 * mChurnT2));
 
-    // All locations fully ramped on GMV and material adoption by sale date
-    const franchiseGMV = activeFranchises * a.gmvPerFranchiseMonthly;
-    const jvGMV = activeJV * a.gmvPerJVMonthly;
+    // Seasonal GMV — m=0 is Jan of modelEndYear+1
+    const calendarMonth = m % 12; // 0=Jan, 11=Dec
+    const seasonFactor = a.seasonalityEnabled ? SEASONAL_WEIGHTS[calendarMonth] : 1.0;
+
+    const franchiseGMV = activeFranchises * a.gmvPerFranchiseMonthly * seasonFactor;
+    const jvGMV = activeJV * a.gmvPerJVMonthly * seasonFactor;
     const systemGMV = franchiseGMV + jvGMV;
 
     // Revenue (no franchise fees — no new sales)
@@ -366,7 +407,7 @@ function projectSaleYearEbitda(a: Assumptions, lastRow: any, modelEndYear: numbe
     monthlyProfits.push(operatingProfit);
   }
 
-  // Return trailing 12-month sum at sale date
+  // Return trailing 12-month EBITDA (pre-tax — standard for valuation multiples)
   const trailing12 = monthlyProfits.slice(-12);
   return trailing12.reduce((s, p) => s + p, 0);
 }
@@ -447,7 +488,7 @@ export default function FranchiseDashboard() {
   const { assumptions: a, scenarios, activeScenario } = state;
   const sc = scenarios[activeScenario];
 
-  const updateAssumption = (key: keyof Assumptions, val: number) =>
+  const updateAssumption = (key: keyof Assumptions, val: number | boolean) =>
     setState(prev => ({ ...prev, assumptions: { ...prev.assumptions, [key]: val } }));
 
   const updateMonthSales = (monthIdx: number, field: keyof MonthSales, val: number) => {
@@ -618,7 +659,7 @@ export default function FranchiseDashboard() {
   };
 
   // Calculated data
-  const results = useMemo(() => scenarios.map(s => calcScenario(a, s)), [a, scenarios]);
+  const results = useMemo(() => scenarios.map((s, si) => calcScenario(a, s, si)), [a, scenarios]);
   const result = results[activeScenario];
 
   // Comparison data for all scenarios
@@ -1174,6 +1215,53 @@ export default function FranchiseDashboard() {
                   <p>Franchise: {(a.churnRateFranchise * 100).toFixed(0)}%/yr → {(annualToMonthlyChurn(a.churnRateFranchise) * 100).toFixed(2)}%/mo → {((1 - a.churnRateFranchise) * 100).toFixed(0)}% retention</p>
                 </div>
               </Section>
+              <Section title="Seasonality" color="blue">
+                <div className="flex items-center gap-3 mb-3">
+                  <label className="text-xs font-medium text-gray-600">Seasonal GMV Curve</label>
+                  <button
+                    onClick={() => updateAssumption('seasonalityEnabled', !a.seasonalityEnabled)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${a.seasonalityEnabled ? 'bg-blue-600' : 'bg-gray-300'}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${a.seasonalityEnabled ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                  </button>
+                  <span className="text-xs text-gray-500">{a.seasonalityEnabled ? 'On' : 'Off'}</span>
+                </div>
+                <div className="p-3 bg-blue-100 rounded-lg text-xs text-blue-800">
+                  <p className="font-bold mb-2">Fencing Industry Seasonal Curve</p>
+                  <p className="mb-2">GMV multipliers by month (normalized to average 1.0 — annual totals preserved):</p>
+                  <div className="flex items-end gap-0.5 h-16 mb-1">
+                    {SEASONAL_WEIGHTS.map((w, mi) => (
+                      <div key={mi} className="flex-1 flex flex-col items-center">
+                        <div
+                          className={`w-full rounded-t ${a.seasonalityEnabled ? (w >= 1 ? 'bg-blue-500' : 'bg-blue-300') : 'bg-gray-300'}`}
+                          style={{ height: `${(w / Math.max(...SEASONAL_WEIGHTS)) * 100}%` }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-0.5 text-[8px] text-blue-600">
+                    {['J','F','M','A','M','J','J','A','S','O','N','D'].map((l, i) => (
+                      <div key={i} className="flex-1 text-center">{l}</div>
+                    ))}
+                  </div>
+                  <div className="flex gap-0.5 text-[8px] text-blue-500 mt-0.5">
+                    {SEASONAL_WEIGHTS.map((w, i) => (
+                      <div key={i} className="flex-1 text-center">{w.toFixed(2)}</div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-blue-600 italic">Peak: {(Math.max(...SEASONAL_WEIGHTS)).toFixed(2)}x (Jun) · Trough: {(Math.min(...SEASONAL_WEIGHTS)).toFixed(2)}x (Dec)</p>
+                </div>
+              </Section>
+              <Section title="Tax Estimate" color="amber">
+                <InputField label="Effective Tax Rate" value={a.effectiveTaxRate * 100} onChange={v => updateAssumption('effectiveTaxRate', v / 100)} suffix="%" step={1} min={0} max={50} />
+                <div className="mt-3 p-3 bg-amber-100 rounded-lg text-xs text-amber-800">
+                  <p className="font-bold mb-1">Tax Assumptions</p>
+                  <p>Combined federal ({'>'}21%) + state (~5%) effective rate.</p>
+                  <p className="mt-1">Tax only applies to profitable months — losses carry no tax benefit in this model.</p>
+                  <p className="mt-1">Valuation multiples are applied to <span className="font-bold">pre-tax EBITDA</span> (standard for acquisitions).</p>
+                  <p className="mt-1 text-amber-600 italic">Current rate: {fmtPctWhole(a.effectiveTaxRate * 100)} → every $100K EBITDA yields {fmt(100000 * (1 - a.effectiveTaxRate))} after tax</p>
+                </div>
+              </Section>
               <Section title="Quick Sensitivity" color="indigo">
                 <div className="space-y-2 text-xs">
                   <p className="text-gray-600">Each additional Tier 1 member = <span className="font-bold text-indigo-700">{fmt(a.tier1Price * 12)}/year</span></p>
@@ -1463,7 +1551,7 @@ export default function FranchiseDashboard() {
             <div className="bg-white rounded-xl border p-4 shadow-sm overflow-hidden">
               <h3 className="font-bold text-sm text-gray-800 mb-3">Annual P&L by Scenario</h3>
               <div className="overflow-x-auto">
-                <table className="w-full text-xs whitespace-nowrap" style={{ minWidth: 700 }}>
+                <table className="w-full text-xs whitespace-nowrap" style={{ minWidth: 850 }}>
                   <thead>
                     <tr className="border-b-2 border-gray-300">
                       <th className="text-left py-2 px-2">Scenario</th>
@@ -1475,7 +1563,9 @@ export default function FranchiseDashboard() {
                       <th className="text-right py-2 px-1">Platform</th>
                       <th className="text-right py-2 px-1 font-bold bg-green-50">Revenue</th>
                       <th className="text-right py-2 px-1 font-bold bg-red-50">Cost</th>
-                      <th className="text-right py-2 px-2 font-bold">Profit</th>
+                      <th className="text-right py-2 px-1 font-bold">EBITDA</th>
+                      <th className="text-right py-2 px-1 text-amber-700">Tax</th>
+                      <th className="text-right py-2 px-2 font-bold">Net</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1495,7 +1585,9 @@ export default function FranchiseDashboard() {
                         <td className="text-right py-2 px-1">{fmtK(y.platformFees)}</td>
                         <td className="text-right py-2 px-1 font-bold bg-green-50">{fmtK(y.revenue)}</td>
                         <td className="text-right py-2 px-1 font-bold bg-red-50">{fmtK(y.cost)}</td>
-                        <td className={`text-right py-2 px-2 font-bold ${y.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmtK(y.profit)}</td>
+                        <td className={`text-right py-2 px-1 font-bold ${y.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmtK(y.profit)}</td>
+                        <td className="text-right py-2 px-1 text-amber-600">{fmtK(y.tax)}</td>
+                        <td className={`text-right py-2 px-2 font-bold ${y.netIncome >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{fmtK(y.netIncome)}</td>
                       </tr>
                     )))}
                   </tbody>
