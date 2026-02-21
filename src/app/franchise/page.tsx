@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell, Area, AreaChart,
@@ -427,19 +427,47 @@ function InputField({ label, value, onChange, prefix, suffix, step, min, max, sm
   label: string; value: number; onChange: (v: number) => void;
   prefix?: string; suffix?: string; step?: number; min?: number; max?: number; small?: boolean;
 }) {
+  const [localVal, setLocalVal] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+  // Sync from parent when not editing
+  useEffect(() => { if (!focused) setLocalVal(String(value)); }, [value, focused]);
+  const commit = (s: string) => {
+    const p = parseFloat(s);
+    if (!isNaN(p)) { onChange(p); setLocalVal(String(p)); }
+    else { onChange(0); setLocalVal("0"); }
+  };
   return (
     <div className={small ? "flex items-center gap-2" : "mb-3"}>
       <label className="text-xs font-medium text-gray-600 whitespace-nowrap">{label}</label>
       <div className="flex items-center gap-1 mt-0.5">
         {prefix && <span className="text-xs text-gray-400">{prefix}</span>}
         <input
-          type="number" value={value} step={step || 1} min={min} max={max}
-          onChange={e => onChange(parseFloat(e.target.value) || 0)}
+          type="number" value={focused ? localVal : value} step={step || 1} min={min} max={max}
+          onChange={e => { setLocalVal(e.target.value); const p = parseFloat(e.target.value); if (!isNaN(p)) onChange(p); }}
+          onFocus={() => { setFocused(true); setLocalVal(String(value)); }}
+          onBlur={e => { setFocused(false); commit(e.target.value); }}
           className={`text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none ${small ? 'w-20' : 'w-full'}`}
         />
         {suffix && <span className="text-xs text-gray-400">{suffix}</span>}
       </div>
     </div>
+  );
+}
+
+// Inline number input with proper clear/delete behavior (no snapping to 0)
+function NumInput({ value, onChange, className, min, max, step, title, onKeyDown, ...rest }:
+  { value: number; onChange: (v: number) => void; className?: string; min?: number; max?: number; step?: number; title?: string; onKeyDown?: React.KeyboardEventHandler } & Record<string, any>) {
+  const [localVal, setLocalVal] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+  useEffect(() => { if (!focused) setLocalVal(String(value)); }, [value, focused]);
+  return (
+    <input type="number" value={focused ? localVal : value}
+      min={min} max={max} step={step} title={title} onKeyDown={onKeyDown}
+      {...rest}
+      onChange={e => { setLocalVal(e.target.value); const p = parseFloat(e.target.value); if (!isNaN(p)) onChange(p); }}
+      onFocus={() => { setFocused(true); setLocalVal(String(value)); }}
+      onBlur={e => { setFocused(false); const p = parseFloat(e.target.value); if (!isNaN(p)) { onChange(p); setLocalVal(String(p)); } else { onChange(0); setLocalVal("0"); } }}
+      className={className} />
   );
 }
 
@@ -1076,10 +1104,10 @@ export default function FranchiseDashboard() {
                     return (
                       <tr className="border-b-2 border-indigo-300 bg-indigo-50 font-bold text-xs">
                         <td className="py-2 px-2 font-bold text-indigo-800" title="Edit totals to auto-distribute with seasonality">⚡ TOTALS</td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={totalNewF} onChange={e => seasonalDistribute('franchises', parseInt(e.target.value) || 0)} className={totalInputClass} title="Distributes to Jul-Oct selling season" /></td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={totalNewT1} onChange={e => seasonalDistribute('tier1', parseInt(e.target.value) || 0)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={totalNewT2} onChange={e => seasonalDistribute('tier2', parseInt(e.target.value) || 0)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={totalNewJV} onChange={e => seasonalDistribute('jv', parseInt(e.target.value) || 0)} className={totalInputClass} title="Distributes to Jul-Oct selling season" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={totalNewF} onChange={v => seasonalDistribute('franchises', v)} className={totalInputClass} title="Distributes to Jul-Oct selling season" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={totalNewT1} onChange={v => seasonalDistribute('tier1', v)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={totalNewT2} onChange={v => seasonalDistribute('tier2', v)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={totalNewJV} onChange={v => seasonalDistribute('jv', v)} className={totalInputClass} title="Distributes to Jul-Oct selling season" /></td>
                         <td className="text-right py-2 px-2 bg-indigo-100">{last.activeTier1 + last.activeTier2}</td>
                         <td className="text-right py-2 px-2 bg-indigo-100">{last.activeJV}</td>
                         <td className="text-right py-2 px-2 bg-indigo-100">{last.activeFranchises}</td>
@@ -1096,10 +1124,10 @@ export default function FranchiseDashboard() {
                     return (
                       <tr key={i} className={`border-b hover:bg-indigo-50/30 ${isYearStart ? 'border-t-2 border-gray-400' : ''}`}>
                         <td className="py-1 px-2 font-medium text-gray-600">{monthLabels[i]}</td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={m.franchises} onChange={e => updateMonthSales(i, 'franchises', parseInt(e.target.value) || 0)} data-row={i} data-col="franchises" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-purple-400 focus:border-purple-400 outline-none" /></td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={m.tier1} onChange={e => updateMonthSales(i, 'tier1', parseInt(e.target.value) || 0)} data-row={i} data-col="tier1" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none" /></td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={m.tier2} onChange={e => updateMonthSales(i, 'tier2', parseInt(e.target.value) || 0)} data-row={i} data-col="tier2" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-green-400 focus:border-green-400 outline-none" /></td>
-                        <td className="py-1 px-1"><input type="number" min={0} value={m.jv} onChange={e => updateMonthSales(i, 'jv', parseInt(e.target.value) || 0)} data-row={i} data-col="jv" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={m.franchises} onChange={v => updateMonthSales(i, 'franchises', v)} data-row={i} data-col="franchises" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-purple-400 focus:border-purple-400 outline-none" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={m.tier1} onChange={v => updateMonthSales(i, 'tier1', v)} data-row={i} data-col="tier1" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={m.tier2} onChange={v => updateMonthSales(i, 'tier2', v)} data-row={i} data-col="tier2" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-green-400 focus:border-green-400 outline-none" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={m.jv} onChange={v => updateMonthSales(i, 'jv', v)} data-row={i} data-col="jv" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none" /></td>
                         <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r ? r.activeTier1 + r.activeTier2 : ''}</td>
                         <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r?.activeJV}</td>
                         <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r?.activeFranchises}</td>
@@ -1296,19 +1324,19 @@ export default function FranchiseDashboard() {
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="text-xs font-medium text-gray-600">Franchises</label>
-                          <input type="number" min={0} value={calcFranchises} onChange={e => setCalcFranchises(parseInt(e.target.value) || 0)} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                          <NumInput min={0} value={calcFranchises} onChange={v => setCalcFranchises(Math.round(v))} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
                         </div>
                         <div>
                           <label className="text-xs font-medium text-gray-600">Tier 1</label>
-                          <input type="number" min={0} value={calcTier1} onChange={e => setCalcTier1(parseInt(e.target.value) || 0)} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                          <NumInput min={0} value={calcTier1} onChange={v => setCalcTier1(Math.round(v))} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
                         </div>
                         <div>
                           <label className="text-xs font-medium text-gray-600">Tier 2</label>
-                          <input type="number" min={0} value={calcTier2} onChange={e => setCalcTier2(parseInt(e.target.value) || 0)} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                          <NumInput min={0} value={calcTier2} onChange={v => setCalcTier2(Math.round(v))} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
                         </div>
                         <div>
                           <label className="text-xs font-medium text-gray-600">JV</label>
-                          <input type="number" min={0} value={calcJV} onChange={e => setCalcJV(parseInt(e.target.value) || 0)} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                          <NumInput min={0} value={calcJV} onChange={v => setCalcJV(Math.round(v))} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
                         </div>
                       </div>
                       <div className="bg-green-100 rounded-lg p-3 space-y-2 text-xs">
@@ -1456,8 +1484,8 @@ export default function FranchiseDashboard() {
                   </div>
                   <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-3 py-2 border border-indigo-200">
                     <label className="text-xs font-medium text-indigo-700 whitespace-nowrap">EBITDA Multiple:</label>
-                    <input type="number" min={1} max={30} step={0.5} value={ebitdaMultiple}
-                      onChange={e => setEbitdaMultiple(parseFloat(e.target.value) || 5)}
+                    <NumInput min={1} max={30} step={0.5} value={ebitdaMultiple}
+                      onChange={v => setEbitdaMultiple(v)}
                       className="w-16 text-center text-sm font-bold border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
                     <span className="text-xs text-indigo-600 font-medium">x</span>
                   </div>
