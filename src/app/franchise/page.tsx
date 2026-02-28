@@ -516,6 +516,11 @@ export default function FranchiseDashboard() {
   // EBITDA Valuation calculator state
   const [ebitdaMultiple, setEbitdaMultiple] = useState(5);
   const [saleYear, setSaleYear] = useState(2030);
+  // Equity grant calculator state
+  const [equityPct, setEquityPct] = useState(2);
+  const [vestingMonths, setVestingMonths] = useState(48);
+  const [cliffMonths, setCliffMonths] = useState(12);
+  const [equityScenarioIdx, setEquityScenarioIdx] = useState(0);
 
   const { assumptions: a, scenarios, activeScenario } = state;
   const sc = scenarios[activeScenario];
@@ -1819,6 +1824,236 @@ export default function FranchiseDashboard() {
                   </div>
                 </div>
               </div>
+
+              {/* ─── EQUITY GRANT CALCULATOR ────────────────────────────── */}
+              {(() => {
+                // Pick the selected scenario's results for equity valuation
+                const eqSi = Math.min(equityScenarioIdx, scenarios.length - 1);
+                const eqResult = results[eqSi];
+                const eqModelEndYear = eqResult.years[eqResult.years.length - 1]?.year ?? 2030;
+                const eqIsBeyondModel = saleYear > eqModelEndYear;
+
+                let eqEbitda: number;
+                if (eqIsBeyondModel) {
+                  eqEbitda = projectSaleYearEbitda(a, eqResult.lastRow, eqModelEndYear, saleYear);
+                } else {
+                  eqEbitda = eqResult.years.find(y => y.year === saleYear)?.profit ?? 0;
+                }
+
+                const eqConservative = eqEbitda * (ebitdaMultiple - 1);
+                const eqAverage = eqEbitda * ebitdaMultiple;
+                const eqHigh = eqEbitda * (ebitdaMultiple + 1);
+
+                // Equity values
+                const pct = equityPct / 100;
+                const equityConservative = eqConservative * pct;
+                const equityAverage = eqAverage * pct;
+                const equityHigh = eqHigh * pct;
+
+                // Vesting schedule — yearly milestones
+                const vestingSteps: { month: number; vestedFraction: number; vestedPct: number; conservative: number; average: number; high: number }[] = [];
+                for (let m = 0; m <= vestingMonths; m += 12) {
+                  const mo = Math.min(m, vestingMonths);
+                  const vestedFraction = mo < cliffMonths ? 0 : Math.min(mo / vestingMonths, 1);
+                  vestingSteps.push({
+                    month: mo,
+                    vestedFraction,
+                    vestedPct: vestedFraction * equityPct,
+                    conservative: equityConservative * vestedFraction,
+                    average: equityAverage * vestedFraction,
+                    high: equityHigh * vestedFraction,
+                  });
+                }
+                // Ensure cliff month is shown as a row if it doesn't land on a year boundary
+                if (cliffMonths > 0 && cliffMonths % 12 !== 0 && cliffMonths <= vestingMonths) {
+                  const cliffFraction = Math.min(cliffMonths / vestingMonths, 1);
+                  const exists = vestingSteps.some(s => s.month === cliffMonths);
+                  if (!exists) {
+                    vestingSteps.push({
+                      month: cliffMonths,
+                      vestedFraction: cliffFraction,
+                      vestedPct: cliffFraction * equityPct,
+                      conservative: equityConservative * cliffFraction,
+                      average: equityAverage * cliffFraction,
+                      high: equityHigh * cliffFraction,
+                    });
+                    vestingSteps.sort((a, b) => a.month - b.month);
+                  }
+                }
+                // Ensure final month is included
+                if (vestingSteps[vestingSteps.length - 1]?.month !== vestingMonths) {
+                  vestingSteps.push({
+                    month: vestingMonths,
+                    vestedFraction: 1,
+                    vestedPct: equityPct,
+                    conservative: equityConservative,
+                    average: equityAverage,
+                    high: equityHigh,
+                  });
+                }
+
+                const annualizedEquityAvg = equityAverage / (vestingMonths / 12);
+
+                return (
+                  <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border-2 border-indigo-200 p-6 shadow-sm">
+                    <h3 className="font-bold text-lg text-indigo-900 mb-1">Equity Grant Calculator</h3>
+                    <p className="text-xs text-indigo-600 mb-4">Model what a % ownership stake is worth at different valuations and how it vests over time.</p>
+
+                    {/* Inputs */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                      <div>
+                        <label className="text-xs font-medium text-indigo-700">Equity %</label>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <NumInput min={0.01} max={100} step={0.25} value={equityPct} onChange={v => setEquityPct(v)}
+                            className="w-full text-xs border border-indigo-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 outline-none" />
+                          <span className="text-xs text-indigo-500">%</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-indigo-700">Vesting Period</label>
+                        <select value={vestingMonths} onChange={e => setVestingMonths(Number(e.target.value))}
+                          className="w-full text-xs border border-indigo-300 rounded-lg px-2 py-1.5 mt-0.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                          <option value={24}>24 months (2 yr)</option>
+                          <option value={36}>36 months (3 yr)</option>
+                          <option value={48}>48 months (4 yr)</option>
+                          <option value={60}>60 months (5 yr)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-indigo-700">Cliff</label>
+                        <select value={cliffMonths} onChange={e => setCliffMonths(Number(e.target.value))}
+                          className="w-full text-xs border border-indigo-300 rounded-lg px-2 py-1.5 mt-0.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                          <option value={0}>No cliff</option>
+                          <option value={6}>6 months</option>
+                          <option value={12}>12 months (1 yr)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-indigo-700">Scenario</label>
+                        <select value={equityScenarioIdx} onChange={e => setEquityScenarioIdx(Number(e.target.value))}
+                          className="w-full text-xs border border-indigo-300 rounded-lg px-2 py-1.5 mt-0.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                          {scenarios.map((s, i) => <option key={i} value={i}>{s.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Valuation basis callout */}
+                    <div className="bg-indigo-100/60 rounded-lg px-4 py-2.5 mb-5 text-xs text-indigo-800">
+                      <span className="font-medium">Valuation basis:</span>{' '}
+                      {scenarios[eqSi].name} @ {saleYear} sale year,{' '}
+                      {ebitdaMultiple}x EBITDA multiple → Company EBITDA: <span className="font-bold">{fmt(eqEbitda)}</span>
+                      {eqIsBeyondModel && <span className="text-indigo-500 ml-1">(projected beyond model)</span>}
+                    </div>
+
+                    {/* Summary cards: Conservative / Average / High */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+                      {/* Conservative */}
+                      <div className="bg-white rounded-lg border p-4 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wide text-amber-700">Conservative</span>
+                          <span className="text-[10px] text-gray-400">{ebitdaMultiple - 1}x EBITDA</span>
+                        </div>
+                        <p className="text-xs text-gray-500">Company valuation: <span className="font-medium text-gray-700">{fmtM(eqConservative)}</span></p>
+                        <p className="text-2xl font-bold text-amber-700 mt-1">{fmt(equityConservative)}</p>
+                        <p className="text-xs text-gray-500 mt-1">{equityPct}% stake, fully vested</p>
+                        <div className="border-t mt-2 pt-2 text-xs text-gray-600 space-y-0.5">
+                          <p>Annualized: <span className="font-medium">{fmt(equityConservative / (vestingMonths / 12))}/yr</span></p>
+                          <p>Monthly vest: <span className="font-medium">{fmt(equityConservative / vestingMonths)}/mo</span></p>
+                        </div>
+                      </div>
+                      {/* Average */}
+                      <div className="bg-white rounded-lg border p-4 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wide text-indigo-700">Average</span>
+                          <span className="text-[10px] text-gray-400">{ebitdaMultiple}x EBITDA</span>
+                        </div>
+                        <p className="text-xs text-gray-500">Company valuation: <span className="font-medium text-gray-700">{fmtM(eqAverage)}</span></p>
+                        <p className="text-2xl font-bold text-indigo-700 mt-1">{fmt(equityAverage)}</p>
+                        <p className="text-xs text-gray-500 mt-1">{equityPct}% stake, fully vested</p>
+                        <div className="border-t mt-2 pt-2 text-xs text-gray-600 space-y-0.5">
+                          <p>Annualized: <span className="font-medium">{fmt(equityAverage / (vestingMonths / 12))}/yr</span></p>
+                          <p>Monthly vest: <span className="font-medium">{fmt(equityAverage / vestingMonths)}/mo</span></p>
+                        </div>
+                      </div>
+                      {/* High */}
+                      <div className="bg-white rounded-lg border p-4 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wide text-emerald-700">High</span>
+                          <span className="text-[10px] text-gray-400">{ebitdaMultiple + 1}x EBITDA</span>
+                        </div>
+                        <p className="text-xs text-gray-500">Company valuation: <span className="font-medium text-gray-700">{fmtM(eqHigh)}</span></p>
+                        <p className="text-2xl font-bold text-emerald-700 mt-1">{fmt(equityHigh)}</p>
+                        <p className="text-xs text-gray-500 mt-1">{equityPct}% stake, fully vested</p>
+                        <div className="border-t mt-2 pt-2 text-xs text-gray-600 space-y-0.5">
+                          <p>Annualized: <span className="font-medium">{fmt(equityHigh / (vestingMonths / 12))}/yr</span></p>
+                          <p>Monthly vest: <span className="font-medium">{fmt(equityHigh / vestingMonths)}/mo</span></p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Vesting Schedule Table */}
+                    <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
+                      <div className="px-4 py-2.5 border-b bg-gray-50">
+                        <h4 className="text-sm font-bold text-gray-800">Vesting Schedule</h4>
+                        <p className="text-[10px] text-gray-500">{cliffMonths > 0 ? `${cliffMonths}-month cliff, then linear vesting` : 'Linear vesting from day 1'} over {vestingMonths} months</p>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b bg-gray-50/50">
+                              <th className="text-left px-4 py-2 font-medium text-gray-600">Month</th>
+                              <th className="text-right px-4 py-2 font-medium text-gray-600">Vested %</th>
+                              <th className="text-right px-4 py-2 font-medium text-amber-700">Conservative</th>
+                              <th className="text-right px-4 py-2 font-medium text-indigo-700">Average</th>
+                              <th className="text-right px-4 py-2 font-medium text-emerald-700">High</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {vestingSteps.map((step, idx) => {
+                              const isCliff = step.month === cliffMonths && cliffMonths > 0;
+                              const isFull = step.vestedFraction >= 1;
+                              return (
+                                <tr key={idx} className={`border-b last:border-0 ${isCliff ? 'bg-indigo-50/50' : isFull ? 'bg-green-50/50' : ''}`}>
+                                  <td className="px-4 py-2 font-medium text-gray-700">
+                                    {step.month === 0 ? 'Grant' : `Month ${step.month}`}
+                                    {isCliff && <span className="ml-1 text-[10px] text-indigo-600 font-normal">(cliff)</span>}
+                                    {isFull && step.month > 0 && <span className="ml-1 text-[10px] text-green-600 font-normal">(fully vested)</span>}
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-medium">
+                                    {step.vestedFraction === 0 && step.month > 0 ? <span className="text-gray-400">0%</span> : `${step.vestedPct.toFixed(2)}%`}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-amber-700">{fmt(step.conservative)}</td>
+                                  <td className="px-4 py-2 text-right text-indigo-700 font-medium">{fmt(step.average)}</td>
+                                  <td className="px-4 py-2 text-right text-emerald-700">{fmt(step.high)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Total Comp + Equity */}
+                    <div className="mt-4 bg-gradient-to-r from-indigo-100 to-purple-100 rounded-lg p-4 border border-indigo-200">
+                      <h4 className="text-sm font-bold text-indigo-900 mb-2">Total Compensation + Equity (Annualized, Average)</h4>
+                      <div className="grid grid-cols-3 gap-4 text-xs">
+                        <div>
+                          <p className="text-gray-600">Cash Comp</p>
+                          <p className="text-lg font-bold text-gray-800">{fmt(totalAnnualComp)}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600">Equity (annualized)</p>
+                          <p className="text-lg font-bold text-indigo-700">{fmt(annualizedEquityAvg)}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600">Total Package</p>
+                          <p className="text-lg font-bold text-purple-800">{fmt(totalAnnualComp + annualizedEquityAvg)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })()}
