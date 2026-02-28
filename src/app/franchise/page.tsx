@@ -24,6 +24,8 @@ interface Assumptions {
   commissionPerTier1: number;
   commissionPerTier2: number;
   commissionPerJV: number;
+  bootcampPrice: number;
+  commissionPerBootcamp: number;
   overheadMonthly: number;
   // Overhead scaling: $25K salary unit supports X of each type
   overheadSalaryUnit: number;        // cost per "support unit" ($25K)
@@ -72,6 +74,8 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   commissionPerTier1: 200,
   commissionPerTier2: 500,
   commissionPerJV: 500,
+  bootcampPrice: 5000,
+  commissionPerBootcamp: 1000,
   overheadMonthly: 25000,
   overheadSalaryUnit: 25000,
   overheadCapFranchiseJV: 5,
@@ -513,6 +517,7 @@ export default function FranchiseDashboard() {
   const [compBaseMonthlySalary, setCompBaseMonthlySalary] = useState(5000);
   const [compSLCFranchises, setCompSLCFranchises] = useState(3);
   const [compSLCGMVRate, setCompSLCGMVRate] = useState(2); // stored as %, displayed as %
+  const [compBootcamps, setCompBootcamps] = useState(4); // bootcamps sold per year
   // EBITDA Valuation calculator state
   const [ebitdaMultiple, setEbitdaMultiple] = useState(5);
   const [saleYear, setSaleYear] = useState(2030);
@@ -1162,12 +1167,14 @@ export default function FranchiseDashboard() {
                 <InputField label="Tier 2 Monthly" value={a.tier2Price} onChange={v => updateAssumption('tier2Price', v)} prefix="$" step={100} />
                 <InputField label="JV Monthly" value={a.jvPrice} onChange={v => updateAssumption('jvPrice', v)} prefix="$" step={100} />
                 <InputField label="Software License Monthly" value={a.franchiseMembershipPrice} onChange={v => updateAssumption('franchiseMembershipPrice', v)} prefix="$" step={100} />
+                <InputField label="Sales Bootcamp" value={a.bootcampPrice} onChange={v => updateAssumption('bootcampPrice', v)} prefix="$" step={500} />
               </Section>
               <Section title="Commissions" color="amber">
                 <InputField label="Per Franchise Sale" value={a.commissionPerFranchise} onChange={v => updateAssumption('commissionPerFranchise', v)} prefix="$" step={500} />
                 <InputField label="Per Tier 1 Sale" value={a.commissionPerTier1} onChange={v => updateAssumption('commissionPerTier1', v)} prefix="$" step={50} />
                 <InputField label="Per Tier 2 Sale" value={a.commissionPerTier2} onChange={v => updateAssumption('commissionPerTier2', v)} prefix="$" step={50} />
                 <InputField label="Per JV Sale" value={a.commissionPerJV} onChange={v => updateAssumption('commissionPerJV', v)} prefix="$" step={50} />
+                <InputField label="Per Bootcamp Sale" value={a.commissionPerBootcamp} onChange={v => updateAssumption('commissionPerBootcamp', v)} prefix="$" step={100} />
               </Section>
             </div>
             <div className="col-span-4 space-y-4">
@@ -1647,13 +1654,17 @@ export default function FranchiseDashboard() {
           const commJV = calcJV * a.commissionPerJV;
           const totalSalesComm = commF + commT1 + commT2 + commJV;
 
+          // Sales bootcamp commissions
+          const bootcampCommission = compBootcamps * a.commissionPerBootcamp;
+          const bootcampRevenue = compBootcamps * a.bootcampPrice;
+
           // SLC GMV commission
           const rampAvg12 = Array.from({ length: 12 }, (_, i) => Math.min((i + 1) / a.gmvRampMonths, 1)).reduce((s, v) => s + v, 0) / 12;
           const slcAnnualGMV = compSLCFranchises * a.gmvPerFranchiseMonthly * 12 * rampAvg12;
           const slcCommission = slcAnnualGMV * (compSLCGMVRate / 100);
 
           // Total comp
-          const totalAnnualComp = annualBase + totalSalesComm + slcCommission;
+          const totalAnnualComp = annualBase + totalSalesComm + bootcampCommission + slcCommission;
 
           // HQ revenue from those sales (same logic as existing commission calculator)
           const coRevFranchiseFees = calcFranchises * a.franchiseFee;
@@ -1663,7 +1674,8 @@ export default function FranchiseDashboard() {
           const coRevGMVannual = coRevFranchiseGMVannual + coRevJVGMVannual;
           const coRevRoyalties = coRevGMVannual * a.royaltyRate;
           const coRevMaterials = coRevGMVannual * a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup;
-          const coTotalYear1 = coRevFranchiseFees + coRevRecurringMo * 12 + coRevRoyalties + coRevMaterials;
+          const coRevBootcamps = bootcampRevenue;
+          const coTotalYear1 = coRevFranchiseFees + coRevRecurringMo * 12 + coRevRoyalties + coRevMaterials + coRevBootcamps;
 
           return (
             <div className="space-y-6">
@@ -1733,6 +1745,30 @@ export default function FranchiseDashboard() {
                 </div>
               </div>
 
+              {/* Sales Bootcamps */}
+              <div className="bg-white rounded-xl border p-5 shadow-sm">
+                <h3 className="font-bold text-sm text-gray-800 mb-3">Sales Bootcamps</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
+                  <div>
+                    <label className="text-xs font-medium text-gray-600">Bootcamps Sold / Year</label>
+                    <NumInput min={0} value={compBootcamps} onChange={v => setCompBootcamps(Math.round(v))}
+                      className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-orange-500 outline-none mt-0.5" />
+                  </div>
+                  <div className="text-xs text-gray-600">
+                    <p>Price: <span className="font-medium">{fmt(a.bootcampPrice)}</span>/ea</p>
+                    <p>Commission: <span className="font-medium">{fmt(a.commissionPerBootcamp)}</span>/ea</p>
+                  </div>
+                  <div className="text-xs">
+                    <p className="text-gray-500">Bootcamp Revenue</p>
+                    <p className="font-bold text-gray-800 text-sm">{fmt(bootcampRevenue)}</p>
+                  </div>
+                  <div className="text-xs">
+                    <p className="text-gray-500">Your Commission</p>
+                    <p className="font-bold text-orange-700 text-sm">{fmt(bootcampCommission)}</p>
+                  </div>
+                </div>
+              </div>
+
               {/* Annual Compensation Summary */}
               <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 p-6 shadow-sm">
                 <h3 className="font-bold text-lg text-green-900 mb-4">Annual Compensation Summary</h3>
@@ -1765,6 +1801,14 @@ export default function FranchiseDashboard() {
                     <div className="flex justify-between items-center py-1.5 text-sm">
                       <span className="text-gray-700 font-medium ml-2">Subtotal Sales Commissions</span>
                       <span className="font-bold">{fmt(totalSalesComm)}</span>
+                    </div>
+                  </div>
+
+                  {/* Bootcamps */}
+                  <div className="border-t border-green-200 pt-2">
+                    <div className="flex justify-between items-center py-1.5">
+                      <span className="text-gray-700">Sales Bootcamps <span className="text-gray-400 text-xs">({compBootcamps} x {fmt(a.commissionPerBootcamp)})</span></span>
+                      <span className="font-bold text-orange-700">{fmt(bootcampCommission)}</span>
                     </div>
                   </div>
 
@@ -1804,6 +1848,8 @@ export default function FranchiseDashboard() {
                       <span className="text-right font-bold">{fmt(coRevRoyalties)}</span>
                       <span>Material markup/yr</span>
                       <span className="text-right font-bold">{fmt(coRevMaterials)}</span>
+                      <span>Bootcamp revenue</span>
+                      <span className="text-right font-bold">{fmt(coRevBootcamps)}</span>
                     </div>
                     <div className="border-t border-blue-300 pt-2 flex justify-between">
                       <span className="font-bold text-blue-900">Total HQ Revenue (Y1):</span>
