@@ -509,6 +509,10 @@ export default function FranchiseDashboard() {
   const [calcTier1, setCalcTier1] = useState(10);
   const [calcTier2, setCalcTier2] = useState(5);
   const [calcJV, setCalcJV] = useState(2);
+  // Comp calculator state
+  const [compBaseMonthlySalary, setCompBaseMonthlySalary] = useState(5000);
+  const [compSLCFranchises, setCompSLCFranchises] = useState(3);
+  const [compSLCGMVRate, setCompSLCGMVRate] = useState(2); // stored as %, displayed as %
   // EBITDA Valuation calculator state
   const [ebitdaMultiple, setEbitdaMultiple] = useState(5);
   const [saleYear, setSaleYear] = useState(2030);
@@ -710,6 +714,7 @@ export default function FranchiseDashboard() {
     { id: "sales", label: "Sales Pipeline" },
     { id: "assumptions", label: "Assumptions" },
     { id: "compare", label: "Compare" },
+    { id: "comp", label: "Comp Calculator" },
   ];
 
   const monthLabels = MONTH_LABELS(sc.months.length);
@@ -1624,6 +1629,199 @@ export default function FranchiseDashboard() {
             </div>
           </div>
         )}
+
+        {/* ─── COMP CALCULATOR TAB ──────────────────────────────────── */}
+        {activeTab === "comp" && (() => {
+          // Base salary
+          const annualBase = compBaseMonthlySalary * 12;
+
+          // Sales commissions (reuse assumptions)
+          const commF = calcFranchises * a.commissionPerFranchise;
+          const commT1 = calcTier1 * a.commissionPerTier1;
+          const commT2 = calcTier2 * a.commissionPerTier2;
+          const commJV = calcJV * a.commissionPerJV;
+          const totalSalesComm = commF + commT1 + commT2 + commJV;
+
+          // SLC GMV commission
+          const rampAvg12 = Array.from({ length: 12 }, (_, i) => Math.min((i + 1) / a.gmvRampMonths, 1)).reduce((s, v) => s + v, 0) / 12;
+          const slcAnnualGMV = compSLCFranchises * a.gmvPerFranchiseMonthly * 12 * rampAvg12;
+          const slcCommission = slcAnnualGMV * (compSLCGMVRate / 100);
+
+          // Total comp
+          const totalAnnualComp = annualBase + totalSalesComm + slcCommission;
+
+          // HQ revenue from those sales (same logic as existing commission calculator)
+          const coRevFranchiseFees = calcFranchises * a.franchiseFee;
+          const coRevRecurringMo = calcTier1 * a.tier1Price + calcTier2 * a.tier2Price + calcJV * a.jvPrice + calcFranchises * a.franchiseMembershipPrice;
+          const coRevFranchiseGMVannual = calcFranchises * a.gmvPerFranchiseMonthly * 12 * rampAvg12;
+          const coRevJVGMVannual = calcJV * a.gmvPerJVMonthly * 12 * rampAvg12;
+          const coRevGMVannual = coRevFranchiseGMVannual + coRevJVGMVannual;
+          const coRevRoyalties = coRevGMVannual * a.royaltyRate;
+          const coRevMaterials = coRevGMVannual * a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup;
+          const coTotalYear1 = coRevFranchiseFees + coRevRecurringMo * 12 + coRevRoyalties + coRevMaterials;
+
+          return (
+            <div className="space-y-6">
+              {/* Inputs */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left: Base & Sales */}
+                <div className="bg-white rounded-xl border p-5 shadow-sm">
+                  <h3 className="font-bold text-sm text-gray-800 mb-4">Base Salary & Sales</h3>
+                  <div className="mb-4">
+                    <label className="text-xs font-medium text-gray-600">Monthly Base Salary</label>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <span className="text-xs text-gray-400">$</span>
+                      <NumInput min={0} value={compBaseMonthlySalary} onChange={v => setCompBaseMonthlySalary(v)}
+                        className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 outline-none" step={500} />
+                    </div>
+                  </div>
+                  <div className="border-t pt-3">
+                    <p className="text-xs font-medium text-gray-500 mb-2">Annual Sales (units sold per year)</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-medium text-gray-600">Franchises</label>
+                        <NumInput min={0} value={calcFranchises} onChange={v => setCalcFranchises(Math.round(v))}
+                          className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 outline-none mt-0.5" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600">Tier 1</label>
+                        <NumInput min={0} value={calcTier1} onChange={v => setCalcTier1(Math.round(v))}
+                          className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 outline-none mt-0.5" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600">Tier 2</label>
+                        <NumInput min={0} value={calcTier2} onChange={v => setCalcTier2(Math.round(v))}
+                          className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 outline-none mt-0.5" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600">JV</label>
+                        <NumInput min={0} value={calcJV} onChange={v => setCalcJV(Math.round(v))}
+                          className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 outline-none mt-0.5" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: SLC Revenue Share */}
+                <div className="bg-white rounded-xl border p-5 shadow-sm">
+                  <h3 className="font-bold text-sm text-gray-800 mb-4">Salt Lake City GMV Commission</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600">SLC Franchises</label>
+                      <NumInput min={0} value={compSLCFranchises} onChange={v => setCompSLCFranchises(Math.round(v))}
+                        className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-purple-500 outline-none mt-0.5" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600">GMV Commission Rate</label>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <NumInput min={0} max={20} step={0.25} value={compSLCGMVRate} onChange={v => setCompSLCGMVRate(v)}
+                          className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-purple-500 outline-none" />
+                        <span className="text-xs text-gray-400">%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 p-3 bg-purple-50 rounded-lg text-xs text-purple-800 space-y-1">
+                    <p><span className="font-medium">SLC GMV/yr:</span> {compSLCFranchises} franchise{compSLCFranchises !== 1 ? 's' : ''} x {fmt(a.gmvPerFranchiseMonthly)}/mo x 12 x {(rampAvg12 * 100).toFixed(0)}% ramp = <span className="font-bold">{fmt(slcAnnualGMV)}</span></p>
+                    <p><span className="font-medium">Your commission:</span> {fmt(slcAnnualGMV)} x {compSLCGMVRate}% = <span className="font-bold text-purple-900">{fmt(slcCommission)}/yr</span></p>
+                    <p className="text-purple-600 italic mt-2">This is a {compSLCGMVRate}% share of all revenue transacted through SLC franchise locations.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Annual Compensation Summary */}
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 p-6 shadow-sm">
+                <h3 className="font-bold text-lg text-green-900 mb-4">Annual Compensation Summary</h3>
+                <div className="space-y-1 text-sm">
+                  {/* Base */}
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-gray-700">Base Salary <span className="text-gray-400 text-xs">({fmt(compBaseMonthlySalary)}/mo x 12)</span></span>
+                    <span className="font-bold text-gray-900">{fmt(annualBase)}</span>
+                  </div>
+
+                  {/* Sales Commissions */}
+                  <div className="border-t border-green-200 pt-2">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Sales Commissions</p>
+                    {calcFranchises > 0 && <div className="flex justify-between items-center py-1 text-xs">
+                      <span className="text-gray-600 ml-2">Franchises <span className="text-gray-400">({calcFranchises} x {fmt(a.commissionPerFranchise)})</span></span>
+                      <span className="font-medium">{fmt(commF)}</span>
+                    </div>}
+                    {calcTier1 > 0 && <div className="flex justify-between items-center py-1 text-xs">
+                      <span className="text-gray-600 ml-2">Tier 1 <span className="text-gray-400">({calcTier1} x {fmt(a.commissionPerTier1)})</span></span>
+                      <span className="font-medium">{fmt(commT1)}</span>
+                    </div>}
+                    {calcTier2 > 0 && <div className="flex justify-between items-center py-1 text-xs">
+                      <span className="text-gray-600 ml-2">Tier 2 <span className="text-gray-400">({calcTier2} x {fmt(a.commissionPerTier2)})</span></span>
+                      <span className="font-medium">{fmt(commT2)}</span>
+                    </div>}
+                    {calcJV > 0 && <div className="flex justify-between items-center py-1 text-xs">
+                      <span className="text-gray-600 ml-2">JV <span className="text-gray-400">({calcJV} x {fmt(a.commissionPerJV)})</span></span>
+                      <span className="font-medium">{fmt(commJV)}</span>
+                    </div>}
+                    <div className="flex justify-between items-center py-1.5 text-sm">
+                      <span className="text-gray-700 font-medium ml-2">Subtotal Sales Commissions</span>
+                      <span className="font-bold">{fmt(totalSalesComm)}</span>
+                    </div>
+                  </div>
+
+                  {/* SLC */}
+                  <div className="border-t border-green-200 pt-2">
+                    <div className="flex justify-between items-center py-1.5">
+                      <span className="text-gray-700">SLC GMV Commission <span className="text-gray-400 text-xs">({compSLCFranchises} loc x {compSLCGMVRate}% GMV)</span></span>
+                      <span className="font-bold text-purple-700">{fmt(slcCommission)}</span>
+                    </div>
+                  </div>
+
+                  {/* Total */}
+                  <div className="border-t-2 border-green-400 pt-3 mt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-green-900 font-bold text-lg">Total Annual Compensation</span>
+                      <span className="text-green-900 font-bold text-2xl">{fmt(totalAnnualComp)}</span>
+                    </div>
+                    <div className="flex justify-between items-center mt-1">
+                      <span className="text-gray-500 text-xs">Monthly equivalent</span>
+                      <span className="text-gray-600 text-sm font-medium">{fmt(totalAnnualComp / 12)}/mo</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* HQ ROI Context */}
+              <div className="bg-white rounded-xl border p-5 shadow-sm">
+                <h3 className="font-bold text-sm text-gray-800 mb-3">What This Generates for HQ (Year 1)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-blue-50 rounded-lg p-4 text-xs space-y-2">
+                    <div className="grid grid-cols-2 gap-1 text-blue-800">
+                      <span>Franchise fees (upfront)</span>
+                      <span className="text-right font-bold">{fmt(coRevFranchiseFees)}</span>
+                      <span>Recurring memberships/yr</span>
+                      <span className="text-right font-bold">{fmt(coRevRecurringMo * 12)}</span>
+                      <span>Royalties/yr (on GMV)</span>
+                      <span className="text-right font-bold">{fmt(coRevRoyalties)}</span>
+                      <span>Material markup/yr</span>
+                      <span className="text-right font-bold">{fmt(coRevMaterials)}</span>
+                    </div>
+                    <div className="border-t border-blue-300 pt-2 flex justify-between">
+                      <span className="font-bold text-blue-900">Total HQ Revenue (Y1):</span>
+                      <span className="font-bold text-blue-900 text-base">{fmt(coTotalYear1)}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-3 text-xs">
+                    <div className="bg-amber-50 rounded-lg p-3">
+                      <p className="font-medium text-amber-800">Comp-to-Revenue Ratio</p>
+                      <p className="text-2xl font-bold text-amber-700 mt-1">{coTotalYear1 > 0 ? (totalAnnualComp / coTotalYear1 * 100).toFixed(1) : '0'}%</p>
+                      <p className="text-amber-600 text-[10px] mt-1">{coTotalYear1 > 0 && (totalAnnualComp / coTotalYear1 < 0.15 ? 'Very efficient — HQ gets strong ROI on this hire' : totalAnnualComp / coTotalYear1 < 0.25 ? 'Reasonable ratio for a producing salesperson' : 'High ratio — needs strong volume to justify')}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <p className="font-medium text-gray-700">Effective Hourly Rate</p>
+                      <p className="text-2xl font-bold text-gray-800 mt-1">{fmt(totalAnnualComp / 2080)}/hr</p>
+                      <p className="text-gray-500 text-[10px] mt-1">Based on 2,080 working hours/year (40hr x 52wk)</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
