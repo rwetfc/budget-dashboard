@@ -1401,7 +1401,8 @@ export default function FranchiseDashboard() {
                   <p className="text-gray-600">Annual recurring per franchise = <span className="font-bold text-indigo-700">{fmt(a.franchiseMembershipPrice * 12 + a.gmvPerFranchiseMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup + a.platformFeeRate))}</span> (software licenses + GMV income)</p>
                 </div>
               </Section>
-              <Section title="💰 Sales Commission Calculator" color="green">
+              {/* Sales Commission Calculator removed — now lives in Comp Calculator tab */}
+              {false && <Section title="💰 Sales Commission Calculator" color="green">
                 {(() => {
                   const commF = calcFranchises * a.commissionPerFranchise;
                   const commT1 = calcTier1 * a.commissionPerTier1;
@@ -1493,7 +1494,7 @@ export default function FranchiseDashboard() {
                     </div>
                   );
                 })()}
-              </Section>
+              </Section>}
             </div>
           </div>
         )}
