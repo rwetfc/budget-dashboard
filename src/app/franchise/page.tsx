@@ -8,11 +8,13 @@ import {
 } from "recharts";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
-interface MonthSales { franchises: number; tier1: number; tier2: number; jv: number; }
+interface MonthSales { franchises: number; tier1: number; tier2: number; tier3: number; tier4: number; jv: number; }
 interface Scenario {
   name: string;
   startingTier1: number;
   startingTier2: number;
+  startingTier3: number;
+  startingTier4: number;
   startingJV: number;
   startingFranchises: number;
   months: MonthSales[];
@@ -23,6 +25,8 @@ interface Assumptions {
   commissionPerFranchise: number;
   commissionPerTier1: number;
   commissionPerTier2: number;
+  commissionPerTier3: number;
+  commissionPerTier4: number;
   commissionPerJV: number;
   bootcampPrice: number;
   commissionPerBootcamp: number;
@@ -32,11 +36,15 @@ interface Assumptions {
   overheadCapFranchiseJV: number;    // franchises+JVs per unit (5)
   overheadCapTier1: number;          // tier1 members per unit (15)
   overheadCapTier2: number;          // tier2 members per unit (12)
+  overheadCapTier3: number;          // tier3 members per unit (10)
+  overheadCapTier4: number;          // tier4 members per unit (8)
   overheadScaleExponent: number;     // <1 = economies of scale (0.8 default)
   royaltyRate: number;
   platformFeeRate: number;
   tier1Price: number;
   tier2Price: number;
+  tier3Price: number;
+  tier4Price: number;
   jvPrice: number;
   franchiseMembershipPrice: number;
   gmvPerFranchiseMonthly: number;
@@ -44,6 +52,8 @@ interface Assumptions {
   gmvRampMonths: number;
   churnRateTier1: number;
   churnRateTier2: number;
+  churnRateTier3: number;
+  churnRateTier4: number;
   churnRateJV: number;
   churnRateFranchise: number;
   materialPctOfGMV: number;
@@ -57,7 +67,7 @@ interface Assumptions {
 interface AppState { assumptions: Assumptions; scenarios: Scenario[]; activeScenario: number; }
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
-const MONTHS_60 = (): MonthSales[] => Array.from({ length: 60 }, () => ({ franchises: 0, tier1: 0, tier2: 0, jv: 0 }));
+const MONTHS_60 = (): MonthSales[] => Array.from({ length: 60 }, () => ({ franchises: 0, tier1: 0, tier2: 0, tier3: 0, tier4: 0, jv: 0 }));
 const MONTH_LABELS = (n: number) => {
   const labels: string[] = [];
   let y = 2026, m = 0;
@@ -73,6 +83,8 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   commissionPerFranchise: 10000,
   commissionPerTier1: 200,
   commissionPerTier2: 500,
+  commissionPerTier3: 750,
+  commissionPerTier4: 1000,
   commissionPerJV: 500,
   bootcampPrice: 5000,
   commissionPerBootcamp: 1000,
@@ -81,11 +93,15 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   overheadCapFranchiseJV: 5,
   overheadCapTier1: 15,
   overheadCapTier2: 12,
+  overheadCapTier3: 10,
+  overheadCapTier4: 8,
   overheadScaleExponent: 0.8,
   royaltyRate: 0.04,
   platformFeeRate: 0.0033,
   tier1Price: 1000,
   tier2Price: 2000,
+  tier3Price: 3000,
+  tier4Price: 4000,
   jvPrice: 3500,
   franchiseMembershipPrice: 3500,
   gmvPerFranchiseMonthly: 83333,
@@ -93,6 +109,8 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   gmvRampMonths: 4,
   churnRateTier1: 0.20,       // 20% annual → converted to monthly in calc engine
   churnRateTier2: 0.10,       // 10% annual
+  churnRateTier3: 0.08,       // 8% annual
+  churnRateTier4: 0.06,       // 6% annual
   churnRateJV: 0.05,          // 5% annual
   churnRateFranchise: 0.05,   // 5% annual
   materialPctOfGMV: 0.40,
@@ -107,24 +125,24 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
 function buildFlatScenario(): Scenario {
   const m = MONTHS_60();
   // Apr-Sep 2026: 3 franchise, 4 T1, 2 T2 per month
-  for (let i = 3; i <= 8; i++) { m[i] = { franchises: 3, tier1: 4, tier2: 2, jv: 0 }; }
+  for (let i = 3; i <= 8; i++) { m[i] = { franchises: 3, tier1: 4, tier2: 2, tier3: 0, tier4: 0, jv: 0 }; }
   // Oct 2026: 1 franchise, 3 T1, 1 T2
-  m[9] = { franchises: 1, tier1: 3, tier2: 1, jv: 0 };
+  m[9] = { franchises: 1, tier1: 3, tier2: 1, tier3: 0, tier4: 0, jv: 0 };
   // Nov 2026: 1 franchise, 3 T1, 0 T2
-  m[10] = { franchises: 1, tier1: 3, tier2: 0, jv: 0 };
-  return { name: "Flat 3yr Steady State", startingTier1: 3, startingTier2: 1, startingJV: 1, startingFranchises: 0, months: m, color: "#3b82f6" };
+  m[10] = { franchises: 1, tier1: 3, tier2: 0, tier3: 0, tier4: 0, jv: 0 };
+  return { name: "Flat 3yr Steady State", startingTier1: 3, startingTier2: 1, startingTier3: 0, startingTier4: 0, startingJV: 1, startingFranchises: 0, months: m, color: "#3b82f6" };
 }
 
 function buildExpansionScenario(): Scenario {
   const m = MONTHS_60();
-  for (let i = 3; i <= 8; i++) { m[i] = { franchises: 3, tier1: 4, tier2: 2, jv: 0 }; }
-  m[9] = { franchises: 1, tier1: 3, tier2: 1, jv: 0 };
-  m[10] = { franchises: 1, tier1: 3, tier2: 0, jv: 0 };
+  for (let i = 3; i <= 8; i++) { m[i] = { franchises: 3, tier1: 4, tier2: 2, tier3: 0, tier4: 0, jv: 0 }; }
+  m[9] = { franchises: 1, tier1: 3, tier2: 1, tier3: 0, tier4: 0, jv: 0 };
+  m[10] = { franchises: 1, tier1: 3, tier2: 0, tier3: 0, tier4: 0, jv: 0 };
   // Nov 2027 (month 22): 20 franchise batch
-  m[22] = { franchises: 20, tier1: 0, tier2: 0, jv: 0 };
+  m[22] = { franchises: 20, tier1: 0, tier2: 0, tier3: 0, tier4: 0, jv: 0 };
   // Nov 2028 (month 34): 20 franchise batch
-  m[34] = { franchises: 20, tier1: 0, tier2: 0, jv: 0 };
-  return { name: "Expansion Plan", startingTier1: 5, startingTier2: 2, startingJV: 1, startingFranchises: 0, months: m, color: "#10b981" };
+  m[34] = { franchises: 20, tier1: 0, tier2: 0, tier3: 0, tier4: 0, jv: 0 };
+  return { name: "Expansion Plan", startingTier1: 5, startingTier2: 2, startingTier3: 0, startingTier4: 0, startingJV: 1, startingFranchises: 0, months: m, color: "#10b981" };
 }
 
 const DEFAULT_STATE: AppState = {
@@ -183,11 +201,13 @@ const SEASONAL_WEIGHTS = SEASONAL_RAW.map(w => (w * 12) / SEASONAL_SUM);
 // We compute "load units" needed, then apply a power curve (exponent < 1)
 // so doubling load doesn't double cost — economies of scale.
 // Formula: overhead = base + salaryUnit * loadUnits^exponent
-function calcOverhead(a: Assumptions, franchises: number, jv: number, t1: number, t2: number): number {
+function calcOverhead(a: Assumptions, franchises: number, jv: number, t1: number, t2: number, t3: number, t4: number): number {
   const loadFranJV = (franchises + jv) / Math.max(1, a.overheadCapFranchiseJV);
   const loadT1 = t1 / Math.max(1, a.overheadCapTier1);
   const loadT2 = t2 / Math.max(1, a.overheadCapTier2);
-  const rawUnits = loadFranJV + loadT1 + loadT2;
+  const loadT3 = t3 / Math.max(1, a.overheadCapTier3);
+  const loadT4 = t4 / Math.max(1, a.overheadCapTier4);
+  const rawUnits = loadFranJV + loadT1 + loadT2 + loadT3 + loadT4;
   // Apply economies of scale: units^exponent (exponent < 1 means sublinear)
   const scaledUnits = rawUnits > 0 ? Math.pow(rawUnits, a.overheadScaleExponent) : 0;
   // Base overhead is the minimum floor, salary scales on top
@@ -199,6 +219,8 @@ function calcScenario(a: Assumptions, sc: Scenario, scenarioIdx: number) {
   const labels = MONTH_LABELS(sc.months.length);
   let activeTier1 = sc.startingTier1;
   let activeTier2 = sc.startingTier2;
+  let activeTier3 = sc.startingTier3;
+  let activeTier4 = sc.startingTier4;
   let activeJV = sc.startingJV;
   let activeFranchises = sc.startingFranchises;
   // Track ages for GMV ramp (franchises and JVs)
@@ -213,21 +235,29 @@ function calcScenario(a: Assumptions, sc: Scenario, scenarioIdx: number) {
     const newF = m.franchises;
     const newT1 = m.tier1;
     const newT2 = m.tier2;
+    const newT3 = m.tier3;
+    const newT4 = m.tier4;
     const newJV = m.jv;
 
     // Churn: rates are stored as ANNUAL, converted to monthly via compounding formula
     const mChurnT1 = annualToMonthlyChurn(a.churnRateTier1);
     const mChurnT2 = annualToMonthlyChurn(a.churnRateTier2);
+    const mChurnT3 = annualToMonthlyChurn(a.churnRateTier3);
+    const mChurnT4 = annualToMonthlyChurn(a.churnRateTier4);
     const mChurnJV = annualToMonthlyChurn(a.churnRateJV);
     const mChurnF  = annualToMonthlyChurn(a.churnRateFranchise);
 
     const churnedT1 = Math.floor(activeTier1 * mChurnT1);
     const churnedT2 = Math.floor(activeTier2 * mChurnT2);
+    const churnedT3 = Math.floor(activeTier3 * mChurnT3);
+    const churnedT4 = Math.floor(activeTier4 * mChurnT4);
     const churnedJV = Math.floor(activeJV * mChurnJV);
     const churnedF = Math.floor(activeFranchises * mChurnF);
 
     activeTier1 = Math.max(0, activeTier1 - churnedT1 + newT1);
     activeTier2 = Math.max(0, activeTier2 - churnedT2 + newT2);
+    activeTier3 = Math.max(0, activeTier3 - churnedT3 + newT3);
+    activeTier4 = Math.max(0, activeTier4 - churnedT4 + newT4);
     activeJV = Math.max(0, activeJV - churnedJV + newJV);
     activeFranchises = Math.max(0, activeFranchises - churnedF + newF);
 
@@ -269,9 +299,11 @@ function calcScenario(a: Assumptions, sc: Scenario, scenarioIdx: number) {
     const revFranchiseFees = newF * a.franchiseFee;
     const revTier1 = activeTier1 * a.tier1Price;
     const revTier2 = activeTier2 * a.tier2Price;
+    const revTier3 = activeTier3 * a.tier3Price;
+    const revTier4 = activeTier4 * a.tier4Price;
     const revJV = activeJV * a.jvPrice;
     const revFranchiseDues = activeFranchises * a.franchiseMembershipPrice;
-    const revMembership = revTier1 + revTier2 + revJV + revFranchiseDues;
+    const revMembership = revTier1 + revTier2 + revTier3 + revTier4 + revJV + revFranchiseDues;
     const revHeadOffice = revFranchiseFees + revMembership;
     // Royalties on all GMV (franchises + JVs)
     const revRoyalties = systemGMV * a.royaltyRate;
@@ -301,9 +333,11 @@ function calcScenario(a: Assumptions, sc: Scenario, scenarioIdx: number) {
     const costCommFranchise = newF * a.commissionPerFranchise;
     const costCommTier1 = newT1 * a.commissionPerTier1;
     const costCommTier2 = newT2 * a.commissionPerTier2;
+    const costCommTier3 = newT3 * a.commissionPerTier3;
+    const costCommTier4 = newT4 * a.commissionPerTier4;
     const costCommJV = newJV * a.commissionPerJV;
-    const costCommissions = costCommFranchise + costCommTier1 + costCommTier2 + costCommJV;
-    const costOverhead = calcOverhead(a, activeFranchises, activeJV, activeTier1, activeTier2);
+    const costCommissions = costCommFranchise + costCommTier1 + costCommTier2 + costCommTier3 + costCommTier4 + costCommJV;
+    const costOverhead = calcOverhead(a, activeFranchises, activeJV, activeTier1, activeTier2, activeTier3, activeTier4);
     const totalCost = costCommissions + costOverhead;
 
     const operatingProfit = totalRevenue - totalCost;
@@ -314,11 +348,11 @@ function calcScenario(a: Assumptions, sc: Scenario, scenarioIdx: number) {
     return {
       month: labels[i],
       monthIdx: i,
-      newF, newT1, newT2, newJV,
-      activeTier1, activeTier2, activeJV, activeFranchises,
-      activeMembers: activeTier1 + activeTier2,
+      newF, newT1, newT2, newT3, newT4, newJV,
+      activeTier1, activeTier2, activeTier3, activeTier4, activeJV, activeFranchises,
+      activeMembers: activeTier1 + activeTier2 + activeTier3 + activeTier4,
       franchiseGMV, jvGMV, systemGMV,
-      revFranchiseFees, revTier1, revTier2, revJV, revFranchiseDues, revMembership, revHeadOffice,
+      revFranchiseFees, revTier1, revTier2, revTier3, revTier4, revJV, revFranchiseDues, revMembership, revHeadOffice,
       revRoyalties, revPlatformFees, materialVolume, revMaterialMarkup, totalRevenue,
       costCommissions, costOverhead, totalCost,
       operatingProfit, taxExpense, netIncome,
@@ -351,7 +385,7 @@ function calcScenario(a: Assumptions, sc: Scenario, scenarioIdx: number) {
       materialMarkup: slice.reduce((s, r) => s + r.revMaterialMarkup, 0),
       commissions: slice.reduce((s, r) => s + r.costCommissions, 0),
       overhead: slice.reduce((s, r) => s + r.costOverhead, 0),
-      endMembers: last.activeTier1 + last.activeTier2,
+      endMembers: last.activeTier1 + last.activeTier2 + last.activeTier3 + last.activeTier4,
       endJV: last.activeJV,
       endFranchises: last.activeFranchises,
       gmv: slice.reduce((s, r) => s + r.systemGMV, 0),
@@ -372,11 +406,13 @@ function projectSaleYearEbitda(a: Assumptions, lastRow: any, modelEndYear: numbe
   if (saleYear <= modelEndYear) {
     return 0;
   }
-  let { activeFranchises, activeJV, activeTier1, activeTier2 } = lastRow;
+  let { activeFranchises, activeJV, activeTier1, activeTier2, activeTier3, activeTier4 } = lastRow;
   const mChurnF = annualToMonthlyChurn(a.churnRateFranchise);
   const mChurnJV = annualToMonthlyChurn(a.churnRateJV);
   const mChurnT1 = annualToMonthlyChurn(a.churnRateTier1);
   const mChurnT2 = annualToMonthlyChurn(a.churnRateTier2);
+  const mChurnT3 = annualToMonthlyChurn(a.churnRateTier3);
+  const mChurnT4 = annualToMonthlyChurn(a.churnRateTier4);
 
   // Fast-forward month by month from end of model to Dec of saleYear
   // Model ends at Dec of modelEndYear, so first projected month = Jan of modelEndYear+1
@@ -388,6 +424,8 @@ function projectSaleYearEbitda(a: Assumptions, lastRow: any, modelEndYear: numbe
     activeJV = Math.max(0, activeJV - Math.floor(activeJV * mChurnJV));
     activeTier1 = Math.max(0, activeTier1 - Math.floor(activeTier1 * mChurnT1));
     activeTier2 = Math.max(0, activeTier2 - Math.floor(activeTier2 * mChurnT2));
+    activeTier3 = Math.max(0, activeTier3 - Math.floor(activeTier3 * mChurnT3));
+    activeTier4 = Math.max(0, activeTier4 - Math.floor(activeTier4 * mChurnT4));
 
     // Seasonal GMV — m=0 is Jan of modelEndYear+1
     const calendarMonth = m % 12; // 0=Jan, 11=Dec
@@ -399,6 +437,7 @@ function projectSaleYearEbitda(a: Assumptions, lastRow: any, modelEndYear: numbe
 
     // Revenue (no franchise fees — no new sales)
     const revMembership = activeTier1 * a.tier1Price + activeTier2 * a.tier2Price
+      + activeTier3 * a.tier3Price + activeTier4 * a.tier4Price
       + activeJV * a.jvPrice + activeFranchises * a.franchiseMembershipPrice;
     const revRoyalties = systemGMV * a.royaltyRate;
     const revPlatformFees = systemGMV * a.platformFeeRate;
@@ -406,7 +445,7 @@ function projectSaleYearEbitda(a: Assumptions, lastRow: any, modelEndYear: numbe
     const totalRevenue = revMembership + revRoyalties + revPlatformFees + revMaterialMarkup;
 
     // Costs (no commissions — no new sales)
-    const costOverhead = calcOverhead(a, activeFranchises, activeJV, activeTier1, activeTier2);
+    const costOverhead = calcOverhead(a, activeFranchises, activeJV, activeTier1, activeTier2, activeTier3, activeTier4);
     const operatingProfit = totalRevenue - costOverhead;
     monthlyProfits.push(operatingProfit);
   }
@@ -512,6 +551,8 @@ export default function FranchiseDashboard() {
   const [calcFranchises, setCalcFranchises] = useState(5);
   const [calcTier1, setCalcTier1] = useState(10);
   const [calcTier2, setCalcTier2] = useState(5);
+  const [calcTier3, setCalcTier3] = useState(0);
+  const [calcTier4, setCalcTier4] = useState(0);
   const [calcJV, setCalcJV] = useState(2);
   // Comp calculator state
   const [compBaseMonthlySalary, setCompBaseMonthlySalary] = useState(5000);
@@ -619,7 +660,18 @@ export default function FranchiseDashboard() {
       if (data.assumptions?.churnRateJV) merged.churnRateJV = 1 - Math.pow(1 - data.assumptions.churnRateJV, 12);
       if (data.assumptions?.churnRateFranchise) merged.churnRateFranchise = 1 - Math.pow(1 - data.assumptions.churnRateFranchise, 12);
     }
-    return { ...data, assumptions: merged };
+    // Backfill scenarios missing tier3/tier4 fields
+    const migratedScenarios = (data.scenarios || []).map((sc: any) => ({
+      ...sc,
+      startingTier3: sc.startingTier3 ?? 0,
+      startingTier4: sc.startingTier4 ?? 0,
+      months: (sc.months || []).map((m: any) => ({
+        ...m,
+        tier3: m.tier3 ?? 0,
+        tier4: m.tier4 ?? 0,
+      })),
+    }));
+    return { ...data, assumptions: merged, scenarios: migratedScenarios };
   };
 
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -711,7 +763,7 @@ export default function FranchiseDashboard() {
       color: scenarios[i].color,
       totalRevenue: r.totalRevenue,
       totalProfit: r.totalProfit,
-      endMembers: r.lastRow.activeTier1 + r.lastRow.activeTier2,
+      endMembers: r.lastRow.activeTier1 + r.lastRow.activeTier2 + r.lastRow.activeTier3 + r.lastRow.activeTier4,
       endJV: r.lastRow.activeJV,
       endFranchises: r.lastRow.activeFranchises,
       breakEvenMonth: r.breakEvenMonth,
@@ -817,7 +869,7 @@ export default function FranchiseDashboard() {
             <div className="grid grid-cols-7 gap-2">
               <KPI label="Total Revenue" value={fmtM(result.totalRevenue)} subtext={result.rows.length + " mo"} positive />
               <KPI label="Total Profit" value={fmtM(result.totalProfit)} positive={result.totalProfit > 0} negative={result.totalProfit < 0} />
-              <KPI label="Members (T1+T2)" value={(result.lastRow.activeTier1 + result.lastRow.activeTier2).toString()} subtext={"T1:" + result.lastRow.activeTier1 + " T2:" + result.lastRow.activeTier2} />
+              <KPI label="Members (All Tiers)" value={(result.lastRow.activeTier1 + result.lastRow.activeTier2 + result.lastRow.activeTier3 + result.lastRow.activeTier4).toString()} subtext={"T1:" + result.lastRow.activeTier1 + " T2:" + result.lastRow.activeTier2 + " T3:" + result.lastRow.activeTier3 + " T4:" + result.lastRow.activeTier4} />
               <KPI label="JV Partners" value={result.lastRow.activeJV.toString()} subtext={fmtK(result.lastRow.jvGMV) + "/mo"} />
               <KPI label="Franchises" value={result.lastRow.activeFranchises.toString()} subtext={fmtK(result.lastRow.franchiseGMV) + "/mo"} />
               <KPI label="Break-Even" value={result.breakEvenMonth >= 0 ? "Mo " + (result.breakEvenMonth + 1) : "Never"} subtext={result.breakEvenMonth >= 0 ? monthLabels[result.breakEvenMonth] : ""} positive={result.breakEvenMonth >= 0} />
@@ -878,6 +930,8 @@ export default function FranchiseDashboard() {
                           { name: "Software Licenses", value: result.rows.reduce((s, r) => s + r.revFranchiseDues, 0) },
                           { name: "Tier 1", value: result.rows.reduce((s, r) => s + r.revTier1, 0) },
                           { name: "Tier 2", value: result.rows.reduce((s, r) => s + r.revTier2, 0) },
+                          { name: "Tier 3", value: result.rows.reduce((s, r) => s + r.revTier3, 0) },
+                          { name: "Tier 4", value: result.rows.reduce((s, r) => s + r.revTier4, 0) },
                           { name: "JV Dues", value: result.rows.reduce((s, r) => s + r.revJV, 0) },
                           { name: "Royalties", value: result.rows.reduce((s, r) => s + r.revRoyalties, 0) },
                           { name: "Material Markup", value: result.rows.reduce((s, r) => s + r.revMaterialMarkup, 0) },
@@ -934,6 +988,8 @@ export default function FranchiseDashboard() {
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Area dataKey="activeTier1" name="Tier 1" fill="#3b82f6" stroke="#3b82f6" fillOpacity={0.3} stackId="m" />
                   <Area dataKey="activeTier2" name="Tier 2" fill="#10b981" stroke="#10b981" fillOpacity={0.3} stackId="m" />
+                  <Area dataKey="activeTier3" name="Tier 3" fill="#f59e0b" stroke="#f59e0b" fillOpacity={0.3} stackId="m" />
+                  <Area dataKey="activeTier4" name="Tier 4" fill="#8b5cf6" stroke="#8b5cf6" fillOpacity={0.3} stackId="m" />
                   <Area dataKey="activeJV" name="JV" fill="#f59e0b" stroke="#f59e0b" fillOpacity={0.3} stackId="m" />
                   <Line dataKey="activeFranchises" name="Franchises" stroke="#ef4444" strokeWidth={3} dot={false} />
                 </AreaChart>
@@ -954,6 +1010,8 @@ export default function FranchiseDashboard() {
                     <th className="text-right py-2 px-1">New F</th>
                     <th className="text-right py-2 px-1">New T1</th>
                     <th className="text-right py-2 px-1">New T2</th>
+                    <th className="text-right py-2 px-1">New T3</th>
+                    <th className="text-right py-2 px-1">New T4</th>
                     <th className="text-right py-2 px-1">New JV</th>
                     <th className="text-right py-2 px-1 bg-blue-50">Mbrs</th>
                     <th className="text-right py-2 px-1 bg-blue-50">JV</th>
@@ -974,14 +1032,14 @@ export default function FranchiseDashboard() {
                   {/* Totals row */}
                   {(() => {
                     const totals = result.rows.reduce((acc, r) => ({
-                      newF: acc.newF + r.newF, newT1: acc.newT1 + r.newT1, newT2: acc.newT2 + r.newT2, newJV: acc.newJV + r.newJV,
+                      newF: acc.newF + r.newF, newT1: acc.newT1 + r.newT1, newT2: acc.newT2 + r.newT2, newT3: acc.newT3 + r.newT3, newT4: acc.newT4 + r.newT4, newJV: acc.newJV + r.newJV,
                       revFranchiseFees: acc.revFranchiseFees + r.revFranchiseFees, revFranchiseDues: acc.revFranchiseDues + r.revFranchiseDues,
                       revMembership: acc.revMembership + r.revMembership, revRoyalties: acc.revRoyalties + r.revRoyalties,
                       revMaterialMarkup: acc.revMaterialMarkup + r.revMaterialMarkup, revPlatformFees: acc.revPlatformFees + r.revPlatformFees,
                       totalRevenue: acc.totalRevenue + r.totalRevenue, costCommissions: acc.costCommissions + r.costCommissions,
                       costOverhead: acc.costOverhead + r.costOverhead, totalCost: acc.totalCost + r.totalCost,
                       operatingProfit: acc.operatingProfit + r.operatingProfit,
-                    }), { newF: 0, newT1: 0, newT2: 0, newJV: 0, revFranchiseFees: 0, revFranchiseDues: 0, revMembership: 0, revRoyalties: 0, revMaterialMarkup: 0, revPlatformFees: 0, totalRevenue: 0, costCommissions: 0, costOverhead: 0, totalCost: 0, operatingProfit: 0 });
+                    }), { newF: 0, newT1: 0, newT2: 0, newT3: 0, newT4: 0, newJV: 0, revFranchiseFees: 0, revFranchiseDues: 0, revMembership: 0, revRoyalties: 0, revMaterialMarkup: 0, revPlatformFees: 0, totalRevenue: 0, costCommissions: 0, costOverhead: 0, totalCost: 0, operatingProfit: 0 });
                     const last = result.lastRow;
                     return (
                       <tr className="border-b-2 border-indigo-300 bg-indigo-50 font-bold text-xs">
@@ -989,8 +1047,10 @@ export default function FranchiseDashboard() {
                         <td className="text-right py-2 px-1 text-purple-700">{totals.newF}</td>
                         <td className="text-right py-2 px-1">{totals.newT1}</td>
                         <td className="text-right py-2 px-1">{totals.newT2}</td>
+                        <td className="text-right py-2 px-1">{totals.newT3}</td>
+                        <td className="text-right py-2 px-1">{totals.newT4}</td>
                         <td className="text-right py-2 px-1">{totals.newJV}</td>
-                        <td className="text-right py-2 px-1 bg-indigo-100">{last.activeTier1 + last.activeTier2}</td>
+                        <td className="text-right py-2 px-1 bg-indigo-100">{last.activeTier1 + last.activeTier2 + last.activeTier3 + last.activeTier4}</td>
                         <td className="text-right py-2 px-1 bg-indigo-100">{last.activeJV}</td>
                         <td className="text-right py-2 px-1 bg-indigo-100">{last.activeFranchises}</td>
                         <td className="text-right py-2 px-1">{fmtK(totals.revFranchiseFees)}</td>
@@ -1019,8 +1079,10 @@ export default function FranchiseDashboard() {
                         <td className="text-right py-1.5 px-1 text-purple-600">{r.newF || ''}</td>
                         <td className="text-right py-1.5 px-1">{r.newT1 || ''}</td>
                         <td className="text-right py-1.5 px-1">{r.newT2 || ''}</td>
+                        <td className="text-right py-1.5 px-1">{r.newT3 || ''}</td>
+                        <td className="text-right py-1.5 px-1">{r.newT4 || ''}</td>
                         <td className="text-right py-1.5 px-1">{r.newJV || ''}</td>
-                        <td className="text-right py-1.5 px-1 bg-blue-50/50 font-medium">{r.activeTier1 + r.activeTier2}</td>
+                        <td className="text-right py-1.5 px-1 bg-blue-50/50 font-medium">{r.activeTier1 + r.activeTier2 + r.activeTier3 + r.activeTier4}</td>
                         <td className="text-right py-1.5 px-1 bg-blue-50/50 font-medium">{r.activeJV}</td>
                         <td className="text-right py-1.5 px-1 bg-blue-50/50 font-medium">{r.activeFranchises}</td>
                         <td className="text-right py-1.5 px-1">{r.revFranchiseFees ? fmtK(r.revFranchiseFees) : '-'}</td>
@@ -1071,6 +1133,8 @@ export default function FranchiseDashboard() {
               <div className="grid grid-cols-4 gap-4 mb-4">
                 <InputField label="Starting Tier 1" value={sc.startingTier1} onChange={v => updateScenarioField('startingTier1', Math.max(0, v))} />
                 <InputField label="Starting Tier 2" value={sc.startingTier2} onChange={v => updateScenarioField('startingTier2', Math.max(0, v))} />
+                <InputField label="Starting Tier 3" value={sc.startingTier3} onChange={v => updateScenarioField('startingTier3', Math.max(0, v))} />
+                <InputField label="Starting Tier 4" value={sc.startingTier4} onChange={v => updateScenarioField('startingTier4', Math.max(0, v))} />
                 <InputField label="Starting JV" value={sc.startingJV} onChange={v => updateScenarioField('startingJV', Math.max(0, v))} />
                 <InputField label="Starting Franchises" value={sc.startingFranchises} onChange={v => updateScenarioField('startingFranchises', Math.max(0, v))} />
               </div>
@@ -1086,7 +1150,7 @@ export default function FranchiseDashboard() {
                 <div className="flex gap-2 flex-shrink-0">
                   <button onClick={() => {
                     const m = [...sc.months];
-                    if (m.length < 120) { for (let i = 0; i < 12; i++) m.push({ franchises: 0, tier1: 0, tier2: 0, jv: 0 }); updateScenarioField('months', m); }
+                    if (m.length < 120) { for (let i = 0; i < 12; i++) m.push({ franchises: 0, tier1: 0, tier2: 0, tier3: 0, tier4: 0, jv: 0 }); updateScenarioField('months', m); }
                   }} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 whitespace-nowrap">+ Add Year</button>
                 </div>
               </div>
@@ -1097,6 +1161,8 @@ export default function FranchiseDashboard() {
                     <th className="text-center py-2 px-1 font-bold text-purple-700 whitespace-nowrap" style={{ width: 72 }}>Fran</th>
                     <th className="text-center py-2 px-1 font-bold text-blue-700 whitespace-nowrap" style={{ width: 72 }}>Tier 1</th>
                     <th className="text-center py-2 px-1 font-bold text-green-700 whitespace-nowrap" style={{ width: 72 }}>Tier 2</th>
+                    <th className="text-center py-2 px-1 font-bold text-amber-700 whitespace-nowrap" style={{ width: 72 }}>Tier 3</th>
+                    <th className="text-center py-2 px-1 font-bold text-purple-700 whitespace-nowrap" style={{ width: 72 }}>Tier 4</th>
                     <th className="text-center py-2 px-1 font-bold text-amber-700 whitespace-nowrap" style={{ width: 72 }}>JV</th>
                     <th className="text-right py-2 px-2 font-bold bg-gray-50 whitespace-nowrap" style={{ width: 64 }}>Mbrs</th>
                     <th className="text-right py-2 px-2 font-bold bg-gray-50 whitespace-nowrap" style={{ width: 64 }}>Act JV</th>
@@ -1113,6 +1179,8 @@ export default function FranchiseDashboard() {
                     const totalNewF = sc.months.reduce((s, m) => s + m.franchises, 0);
                     const totalNewT1 = sc.months.reduce((s, m) => s + m.tier1, 0);
                     const totalNewT2 = sc.months.reduce((s, m) => s + m.tier2, 0);
+                    const totalNewT3 = sc.months.reduce((s, m) => s + m.tier3, 0);
+                    const totalNewT4 = sc.months.reduce((s, m) => s + m.tier4, 0);
                     const totalNewJV = sc.months.reduce((s, m) => s + m.jv, 0);
                     const last = result.lastRow;
                     const totalInputClass = "w-full text-center text-xs font-bold border border-indigo-300 rounded p-1 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none";
@@ -1122,8 +1190,10 @@ export default function FranchiseDashboard() {
                         <td className="py-1 px-1"><NumInput min={0} value={totalNewF} onChange={v => seasonalDistribute('franchises', v)} className={totalInputClass} title="Distributes to Jul-Oct selling season" /></td>
                         <td className="py-1 px-1"><NumInput min={0} value={totalNewT1} onChange={v => seasonalDistribute('tier1', v)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
                         <td className="py-1 px-1"><NumInput min={0} value={totalNewT2} onChange={v => seasonalDistribute('tier2', v)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={totalNewT3} onChange={v => seasonalDistribute('tier3', v)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={totalNewT4} onChange={v => seasonalDistribute('tier4', v)} className={totalInputClass} title="Heavier Apr-Sep, lighter rest of year" /></td>
                         <td className="py-1 px-1"><NumInput min={0} value={totalNewJV} onChange={v => seasonalDistribute('jv', v)} className={totalInputClass} title="Distributes to Jul-Oct selling season" /></td>
-                        <td className="text-right py-2 px-2 bg-indigo-100">{last.activeTier1 + last.activeTier2}</td>
+                        <td className="text-right py-2 px-2 bg-indigo-100">{last.activeTier1 + last.activeTier2 + last.activeTier3 + last.activeTier4}</td>
                         <td className="text-right py-2 px-2 bg-indigo-100">{last.activeJV}</td>
                         <td className="text-right py-2 px-2 bg-indigo-100">{last.activeFranchises}</td>
                         <td className="text-right py-2 px-2 bg-green-100">{fmtK(totals.totalRevenue)}</td>
@@ -1142,8 +1212,10 @@ export default function FranchiseDashboard() {
                         <td className="py-1 px-1"><NumInput min={0} value={m.franchises} onChange={v => updateMonthSales(i, 'franchises', v)} data-row={i} data-col="franchises" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-purple-400 focus:border-purple-400 outline-none" /></td>
                         <td className="py-1 px-1"><NumInput min={0} value={m.tier1} onChange={v => updateMonthSales(i, 'tier1', v)} data-row={i} data-col="tier1" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none" /></td>
                         <td className="py-1 px-1"><NumInput min={0} value={m.tier2} onChange={v => updateMonthSales(i, 'tier2', v)} data-row={i} data-col="tier2" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-green-400 focus:border-green-400 outline-none" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={m.tier3} onChange={v => updateMonthSales(i, 'tier3', v)} data-row={i} data-col="tier3" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none" /></td>
+                        <td className="py-1 px-1"><NumInput min={0} value={m.tier4} onChange={v => updateMonthSales(i, 'tier4', v)} data-row={i} data-col="tier4" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-purple-400 focus:border-purple-400 outline-none" /></td>
                         <td className="py-1 px-1"><NumInput min={0} value={m.jv} onChange={v => updateMonthSales(i, 'jv', v)} data-row={i} data-col="jv" onKeyDown={handlePipelineTab} className="w-full text-center text-xs border border-gray-200 rounded p-1 focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none" /></td>
-                        <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r ? r.activeTier1 + r.activeTier2 : ''}</td>
+                        <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r ? r.activeTier1 + r.activeTier2 + r.activeTier3 + r.activeTier4 : ''}</td>
                         <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r?.activeJV}</td>
                         <td className="text-right py-1 px-2 bg-gray-50/50 font-medium">{r?.activeFranchises}</td>
                         <td className="text-right py-1 px-2 bg-green-50/50 font-medium">{r ? fmtK(r.totalRevenue) : '-'}</td>
@@ -1165,6 +1237,8 @@ export default function FranchiseDashboard() {
                 <InputField label="Franchise Fee" value={a.franchiseFee} onChange={v => updateAssumption('franchiseFee', v)} prefix="$" step={1000} />
                 <InputField label="Tier 1 Monthly" value={a.tier1Price} onChange={v => updateAssumption('tier1Price', v)} prefix="$" step={100} />
                 <InputField label="Tier 2 Monthly" value={a.tier2Price} onChange={v => updateAssumption('tier2Price', v)} prefix="$" step={100} />
+                <InputField label="Tier 3 Monthly" value={a.tier3Price} onChange={v => updateAssumption('tier3Price', v)} prefix="$" step={100} />
+                <InputField label="Tier 4 Monthly" value={a.tier4Price} onChange={v => updateAssumption('tier4Price', v)} prefix="$" step={100} />
                 <InputField label="JV Monthly" value={a.jvPrice} onChange={v => updateAssumption('jvPrice', v)} prefix="$" step={100} />
                 <InputField label="Software License Monthly" value={a.franchiseMembershipPrice} onChange={v => updateAssumption('franchiseMembershipPrice', v)} prefix="$" step={100} />
                 <InputField label="Sales Bootcamp" value={a.bootcampPrice} onChange={v => updateAssumption('bootcampPrice', v)} prefix="$" step={500} />
@@ -1173,6 +1247,8 @@ export default function FranchiseDashboard() {
                 <InputField label="Per Franchise Sale" value={a.commissionPerFranchise} onChange={v => updateAssumption('commissionPerFranchise', v)} prefix="$" step={500} />
                 <InputField label="Per Tier 1 Sale" value={a.commissionPerTier1} onChange={v => updateAssumption('commissionPerTier1', v)} prefix="$" step={50} />
                 <InputField label="Per Tier 2 Sale" value={a.commissionPerTier2} onChange={v => updateAssumption('commissionPerTier2', v)} prefix="$" step={50} />
+                <InputField label="Per Tier 3 Sale" value={a.commissionPerTier3} onChange={v => updateAssumption('commissionPerTier3', v)} prefix="$" step={50} />
+                <InputField label="Per Tier 4 Sale" value={a.commissionPerTier4} onChange={v => updateAssumption('commissionPerTier4', v)} prefix="$" step={100} />
                 <InputField label="Per JV Sale" value={a.commissionPerJV} onChange={v => updateAssumption('commissionPerJV', v)} prefix="$" step={50} />
                 <InputField label="Per Bootcamp Sale" value={a.commissionPerBootcamp} onChange={v => updateAssumption('commissionPerBootcamp', v)} prefix="$" step={100} />
               </Section>
@@ -1184,21 +1260,23 @@ export default function FranchiseDashboard() {
                 <InputField label="Fran/JV per Unit" value={a.overheadCapFranchiseJV} onChange={v => updateAssumption('overheadCapFranchiseJV', v)} step={1} min={1} />
                 <InputField label="Tier 1 per Unit" value={a.overheadCapTier1} onChange={v => updateAssumption('overheadCapTier1', v)} step={1} min={1} />
                 <InputField label="Tier 2 per Unit" value={a.overheadCapTier2} onChange={v => updateAssumption('overheadCapTier2', v)} step={1} min={1} />
+                <InputField label="Tier 3 per Unit" value={a.overheadCapTier3} onChange={v => updateAssumption('overheadCapTier3', v)} step={1} min={1} />
+                <InputField label="Tier 4 per Unit" value={a.overheadCapTier4} onChange={v => updateAssumption('overheadCapTier4', v)} step={1} min={1} />
                 <InputField label="Scale Exponent" value={a.overheadScaleExponent} onChange={v => updateAssumption('overheadScaleExponent', v)} step={0.05} min={0.3} max={1.5} />
                 <InputField label="Royalty Rate" value={a.royaltyRate * 100} onChange={v => updateAssumption('royaltyRate', v / 100)} suffix="%" step={0.5} />
                 <InputField label="Platform Fee Rate" value={a.platformFeeRate * 100} onChange={v => updateAssumption('platformFeeRate', v / 100)} suffix="%" step={0.01} />
                 <div className="mt-3 p-3 bg-green-100 rounded-lg text-xs text-green-800">
                   <p className="font-bold mb-1">📊 How Overhead Scales</p>
                   <p>Base overhead of <span className="font-bold">{fmt(a.overheadMonthly)}/mo</span> covers rent, tools, insurance — fixed regardless of size.</p>
-                  <p className="mt-1">Each <span className="font-bold">{fmt(a.overheadSalaryUnit)}</span> salary unit supports <span className="font-bold">{a.overheadCapFranchiseJV}</span> franchises/JVs, <span className="font-bold">{a.overheadCapTier1}</span> T1, or <span className="font-bold">{a.overheadCapTier2}</span> T2 members.</p>
+                  <p className="mt-1">Each <span className="font-bold">{fmt(a.overheadSalaryUnit)}</span> salary unit supports <span className="font-bold">{a.overheadCapFranchiseJV}</span> franchises/JVs, <span className="font-bold">{a.overheadCapTier1}</span> T1, <span className="font-bold">{a.overheadCapTier2}</span> T2, <span className="font-bold">{a.overheadCapTier3}</span> T3, or <span className="font-bold">{a.overheadCapTier4}</span> T4 members.</p>
                   <p className="mt-1">Scale exponent of <span className="font-bold">{a.overheadScaleExponent}</span> means {a.overheadScaleExponent < 1 ? 'economies of scale — doubling clients costs only ' + ((Math.pow(2, a.overheadScaleExponent) - 1) * 100).toFixed(0) + '% more staff (not 100%)' : a.overheadScaleExponent === 1 ? 'linear scaling — no economies' : 'diseconomies — scaling gets harder'}.</p>
                   <div className="mt-2 border-t border-green-300 pt-2">
                     <p className="font-bold mb-1">Example overhead at different scales:</p>
-                    {[{ f: 5, j: 1, t1: 10, t2: 5 }, { f: 20, j: 3, t1: 30, t2: 15 }, { f: 50, j: 5, t1: 60, t2: 30 }].map(ex => (
-                      <p key={ex.f} className="text-green-700">{ex.f}F + {ex.j}JV + {ex.t1}T1 + {ex.t2}T2 → <span className="font-bold">{fmt(calcOverhead(a, ex.f, ex.j, ex.t1, ex.t2))}/mo</span></p>
+                    {[{ f: 5, j: 1, t1: 10, t2: 5, t3: 2, t4: 1 }, { f: 20, j: 3, t1: 30, t2: 15, t3: 5, t4: 3 }, { f: 50, j: 5, t1: 60, t2: 30, t3: 10, t4: 5 }].map(ex => (
+                      <p key={ex.f} className="text-green-700">{ex.f}F + {ex.j}JV + {ex.t1}T1 + {ex.t2}T2 + {ex.t3}T3 + {ex.t4}T4 → <span className="font-bold">{fmt(calcOverhead(a, ex.f, ex.j, ex.t1, ex.t2, ex.t3, ex.t4))}/mo</span></p>
                     ))}
                   </div>
-                  <p className="mt-2 text-green-600 italic">Current end-state: {fmt(calcOverhead(a, result.lastRow.activeFranchises, result.lastRow.activeJV, result.lastRow.activeTier1, result.lastRow.activeTier2))}/mo</p>
+                  <p className="mt-2 text-green-600 italic">Current end-state: {fmt(calcOverhead(a, result.lastRow.activeFranchises, result.lastRow.activeJV, result.lastRow.activeTier1, result.lastRow.activeTier2, result.lastRow.activeTier3, result.lastRow.activeTier4))}/mo</p>
                 </div>
               </Section>
               <Section title="Franchise Economics" color="purple">
@@ -1250,6 +1328,8 @@ export default function FranchiseDashboard() {
               <Section title="Churn Rates (Annual)" color="red">
                 <InputField label="Tier 1 Annual Churn" value={a.churnRateTier1 * 100} onChange={v => updateAssumption('churnRateTier1', v / 100)} suffix="%" step={1} />
                 <InputField label="Tier 2 Annual Churn" value={a.churnRateTier2 * 100} onChange={v => updateAssumption('churnRateTier2', v / 100)} suffix="%" step={1} />
+                <InputField label="Tier 3 Annual Churn" value={a.churnRateTier3 * 100} onChange={v => updateAssumption('churnRateTier3', v / 100)} suffix="%" step={1} />
+                <InputField label="Tier 4 Annual Churn" value={a.churnRateTier4 * 100} onChange={v => updateAssumption('churnRateTier4', v / 100)} suffix="%" step={1} />
                 <InputField label="JV Annual Churn" value={a.churnRateJV * 100} onChange={v => updateAssumption('churnRateJV', v / 100)} suffix="%" step={1} />
                 <InputField label="Franchise Annual Churn" value={a.churnRateFranchise * 100} onChange={v => updateAssumption('churnRateFranchise', v / 100)} suffix="%" step={1} />
                 <div className="mt-3 p-3 bg-red-100 rounded-lg text-xs text-red-800">
@@ -1257,6 +1337,8 @@ export default function FranchiseDashboard() {
                   <p>Rates entered as <span className="font-bold">annual</span>, converted to monthly via compounding:</p>
                   <p className="mt-1 font-mono text-[10px] bg-red-50 rounded p-1">monthly = 1 − (1 − annual)^(1/12)</p>
                   <p className="mt-1">T1: {(a.churnRateTier1 * 100).toFixed(0)}%/yr → {(annualToMonthlyChurn(a.churnRateTier1) * 100).toFixed(2)}%/mo → {((1 - a.churnRateTier1) * 100).toFixed(0)}% retention</p>
+                  <p>T3: {(a.churnRateTier3 * 100).toFixed(0)}%/yr → {(annualToMonthlyChurn(a.churnRateTier3) * 100).toFixed(2)}%/mo → {((1 - a.churnRateTier3) * 100).toFixed(0)}% retention</p>
+                  <p>T4: {(a.churnRateTier4 * 100).toFixed(0)}%/yr → {(annualToMonthlyChurn(a.churnRateTier4) * 100).toFixed(2)}%/mo → {((1 - a.churnRateTier4) * 100).toFixed(0)}% retention</p>
                   <p>Franchise: {(a.churnRateFranchise * 100).toFixed(0)}%/yr → {(annualToMonthlyChurn(a.churnRateFranchise) * 100).toFixed(2)}%/mo → {((1 - a.churnRateFranchise) * 100).toFixed(0)}% retention</p>
                 </div>
               </Section>
@@ -1311,6 +1393,8 @@ export default function FranchiseDashboard() {
                 <div className="space-y-2 text-xs">
                   <p className="text-gray-600">Each additional Tier 1 member = <span className="font-bold text-indigo-700">{fmt(a.tier1Price * 12)}/year</span></p>
                   <p className="text-gray-600">Each additional Tier 2 member = <span className="font-bold text-indigo-700">{fmt(a.tier2Price * 12)}/year</span></p>
+                  <p className="text-gray-600">Each additional Tier 3 member = <span className="font-bold text-indigo-700">{fmt(a.tier3Price * 12)}/year</span></p>
+                  <p className="text-gray-600">Each additional Tier 4 member = <span className="font-bold text-indigo-700">{fmt(a.tier4Price * 12)}/year</span></p>
                   <p className="text-gray-600">Each additional JV = <span className="font-bold text-indigo-700">{fmt(a.jvPrice * 12)}/yr dues + {fmt(a.gmvPerJVMonthly * 12 * (a.royaltyRate + a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup + a.platformFeeRate))}/yr from GMV</span></p>
                   <p className="text-gray-600">Each franchise sale = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee)} upfront + {fmt(a.gmvPerFranchiseMonthly * 12 * a.royaltyRate)}/yr royalties + {fmt(a.gmvPerFranchiseMonthly * a.materialPctOfGMV * a.materialAdoptionRate * a.materialMarkup * 12)}/yr materials</span></p>
                   <p className="text-gray-600">Net per franchise sale (after comm.) = <span className="font-bold text-indigo-700">{fmt(a.franchiseFee - a.commissionPerFranchise)}</span></p>
@@ -1322,13 +1406,15 @@ export default function FranchiseDashboard() {
                   const commF = calcFranchises * a.commissionPerFranchise;
                   const commT1 = calcTier1 * a.commissionPerTier1;
                   const commT2 = calcTier2 * a.commissionPerTier2;
+                  const commT3 = calcTier3 * a.commissionPerTier3;
+                  const commT4 = calcTier4 * a.commissionPerTier4;
                   const commJV = calcJV * a.commissionPerJV;
-                  const totalComm = commF + commT1 + commT2 + commJV;
+                  const totalComm = commF + commT1 + commT2 + commT3 + commT4 + commJV;
                   // What those sales generate for the company annually
                   // Account for GMV ramp: avg ramp factor over 12 months
                   const rampAvg12 = Array.from({ length: 12 }, (_, i) => Math.min((i + 1) / a.gmvRampMonths, 1)).reduce((s, v) => s + v, 0) / 12;
                   const coRevFranchiseFees = calcFranchises * a.franchiseFee;
-                  const coRevRecurringMo = calcTier1 * a.tier1Price + calcTier2 * a.tier2Price + calcJV * a.jvPrice + calcFranchises * a.franchiseMembershipPrice;
+                  const coRevRecurringMo = calcTier1 * a.tier1Price + calcTier2 * a.tier2Price + calcTier3 * a.tier3Price + calcTier4 * a.tier4Price + calcJV * a.jvPrice + calcFranchises * a.franchiseMembershipPrice;
                   const coRevFranchiseGMVannual = calcFranchises * a.gmvPerFranchiseMonthly * 12 * rampAvg12;
                   const coRevJVGMVannual = calcJV * a.gmvPerJVMonthly * 12 * rampAvg12;
                   const coRevGMVannual = coRevFranchiseGMVannual + coRevJVGMVannual;
@@ -1338,7 +1424,7 @@ export default function FranchiseDashboard() {
                   return (
                     <div className="space-y-3">
                       <p className="text-xs text-gray-500">If you sell this many in a year, here&apos;s what you&apos;ll earn and what it generates:</p>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-3 gap-3">
                         <div>
                           <label className="text-xs font-medium text-gray-600">Franchises</label>
                           <NumInput min={0} value={calcFranchises} onChange={v => setCalcFranchises(Math.round(v))} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
@@ -1350,6 +1436,14 @@ export default function FranchiseDashboard() {
                         <div>
                           <label className="text-xs font-medium text-gray-600">Tier 2</label>
                           <NumInput min={0} value={calcTier2} onChange={v => setCalcTier2(Math.round(v))} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600">Tier 3</label>
+                          <NumInput min={0} value={calcTier3} onChange={v => setCalcTier3(Math.round(v))} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600">Tier 4</label>
+                          <NumInput min={0} value={calcTier4} onChange={v => setCalcTier4(Math.round(v))} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-green-500 outline-none mt-0.5" />
                         </div>
                         <div>
                           <label className="text-xs font-medium text-gray-600">JV</label>
@@ -1365,6 +1459,10 @@ export default function FranchiseDashboard() {
                           <span className="text-right font-bold">{fmt(commT1)}</span>
                           <span>Tier 2 ({calcTier2} × {fmt(a.commissionPerTier2)})</span>
                           <span className="text-right font-bold">{fmt(commT2)}</span>
+                          <span>Tier 3 ({calcTier3} × {fmt(a.commissionPerTier3)})</span>
+                          <span className="text-right font-bold">{fmt(commT3)}</span>
+                          <span>Tier 4 ({calcTier4} × {fmt(a.commissionPerTier4)})</span>
+                          <span className="text-right font-bold">{fmt(commT4)}</span>
                           <span>JV ({calcJV} × {fmt(a.commissionPerJV)})</span>
                           <span className="text-right font-bold">{fmt(commJV)}</span>
                         </div>
@@ -1424,7 +1522,7 @@ export default function FranchiseDashboard() {
                       {[
                         { label: "Total Revenue", get: (r: any) => fmtM(r.totalRevenue) },
                         { label: "Total Profit", get: (r: any) => fmtM(r.totalProfit) },
-                        { label: "End Mbrs (T1+T2)", get: (r: any) => r.lastRow.activeTier1 + r.lastRow.activeTier2 },
+                        { label: "End Mbrs (All)", get: (r: any) => r.lastRow.activeTier1 + r.lastRow.activeTier2 + r.lastRow.activeTier3 + r.lastRow.activeTier4 },
                         { label: "End JV Partners", get: (r: any) => r.lastRow.activeJV },
                         { label: "End Franchises", get: (r: any) => r.lastRow.activeFranchises },
                         { label: "Recurring/Mo", get: (r: any) => fmtK(r.lastRow.revMembership) },
@@ -1651,8 +1749,10 @@ export default function FranchiseDashboard() {
           const commF = calcFranchises * a.commissionPerFranchise;
           const commT1 = calcTier1 * a.commissionPerTier1;
           const commT2 = calcTier2 * a.commissionPerTier2;
+          const commT3 = calcTier3 * a.commissionPerTier3;
+          const commT4 = calcTier4 * a.commissionPerTier4;
           const commJV = calcJV * a.commissionPerJV;
-          const totalSalesComm = commF + commT1 + commT2 + commJV;
+          const totalSalesComm = commF + commT1 + commT2 + commT3 + commT4 + commJV;
 
           // Sales bootcamp commissions
           const bootcampCommission = compBootcamps * a.commissionPerBootcamp;
@@ -1668,7 +1768,7 @@ export default function FranchiseDashboard() {
 
           // HQ revenue from those sales (same logic as existing commission calculator)
           const coRevFranchiseFees = calcFranchises * a.franchiseFee;
-          const coRevRecurringMo = calcTier1 * a.tier1Price + calcTier2 * a.tier2Price + calcJV * a.jvPrice + calcFranchises * a.franchiseMembershipPrice;
+          const coRevRecurringMo = calcTier1 * a.tier1Price + calcTier2 * a.tier2Price + calcTier3 * a.tier3Price + calcTier4 * a.tier4Price + calcJV * a.jvPrice + calcFranchises * a.franchiseMembershipPrice;
           const coRevFranchiseGMVannual = calcFranchises * a.gmvPerFranchiseMonthly * 12 * rampAvg12;
           const coRevJVGMVannual = calcJV * a.gmvPerJVMonthly * 12 * rampAvg12;
           const coRevGMVannual = coRevFranchiseGMVannual + coRevJVGMVannual;
@@ -1694,7 +1794,7 @@ export default function FranchiseDashboard() {
                   </div>
                   <div className="border-t pt-3">
                     <p className="text-xs font-medium text-gray-500 mb-2">Annual Sales (units sold per year)</p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-3 gap-3">
                       <div>
                         <label className="text-xs font-medium text-gray-600">Franchises</label>
                         <NumInput min={0} value={calcFranchises} onChange={v => setCalcFranchises(Math.round(v))}
@@ -1708,6 +1808,16 @@ export default function FranchiseDashboard() {
                       <div>
                         <label className="text-xs font-medium text-gray-600">Tier 2</label>
                         <NumInput min={0} value={calcTier2} onChange={v => setCalcTier2(Math.round(v))}
+                          className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 outline-none mt-0.5" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600">Tier 3</label>
+                        <NumInput min={0} value={calcTier3} onChange={v => setCalcTier3(Math.round(v))}
+                          className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 outline-none mt-0.5" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600">Tier 4</label>
+                        <NumInput min={0} value={calcTier4} onChange={v => setCalcTier4(Math.round(v))}
                           className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 outline-none mt-0.5" />
                       </div>
                       <div>
@@ -1793,6 +1903,14 @@ export default function FranchiseDashboard() {
                     {calcTier2 > 0 && <div className="flex justify-between items-center py-1 text-xs">
                       <span className="text-gray-600 ml-2">Tier 2 <span className="text-gray-400">({calcTier2} x {fmt(a.commissionPerTier2)})</span></span>
                       <span className="font-medium">{fmt(commT2)}</span>
+                    </div>}
+                    {calcTier3 > 0 && <div className="flex justify-between items-center py-1 text-xs">
+                      <span className="text-gray-600 ml-2">Tier 3 <span className="text-gray-400">({calcTier3} x {fmt(a.commissionPerTier3)})</span></span>
+                      <span className="font-medium">{fmt(commT3)}</span>
+                    </div>}
+                    {calcTier4 > 0 && <div className="flex justify-between items-center py-1 text-xs">
+                      <span className="text-gray-600 ml-2">Tier 4 <span className="text-gray-400">({calcTier4} x {fmt(a.commissionPerTier4)})</span></span>
+                      <span className="font-medium">{fmt(commT4)}</span>
                     </div>}
                     {calcJV > 0 && <div className="flex justify-between items-center py-1 text-xs">
                       <span className="text-gray-600 ml-2">JV <span className="text-gray-400">({calcJV} x {fmt(a.commissionPerJV)})</span></span>
